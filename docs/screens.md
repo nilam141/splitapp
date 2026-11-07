@@ -119,7 +119,7 @@ graph TD
 |---|---|---|
 | Tap Sign up | – | SCR-03 |
 | Tap Log in | – | SCR-04 |
-| Tap Google (V2) | OAuth → `/auth/google` | SCR-07 |
+| Tap Google (V2) | OAuth → `/auth/google` (**not yet in the contract**; deferred, see tasks.md) | SCR-07 |
 
 **States:** no loading state; an error toast if Google is cancelled.
 **Evidence:** logged-out home activity observed (static).
@@ -265,7 +265,7 @@ graph TD
 | Action | Result | Navigates to |
 |---|---|---|
 | Tap a friend | – | SCR-19 |
-| Change filter | list filtered on the client | – |
+| Change filter | list filtered on the client from the cached `GET /friends` response (`?filter=` also exists server-side) | – |
 | Pull to refresh | GET `/friends` | – |
 
 **States:** empty: illustration and "add your first friend". Filter with no results: "no friends match".
@@ -367,7 +367,7 @@ graph TD
 | Group image | image picker | no | ≤ 5 MB |
 | Type | segmented: home / trip / couple / other | yes | default other |
 | Trip dates | date range | no | only for trip; end ≥ start |
-| Members | chips → SCR-21 | no | 0–200 other members (**decision**) |
+| Members | chips → SCR-21 | no | 0–199 other members; 200 members in total including the creator (**decision**, D6) |
 | Simplify debts | switch | – | default on (OQ-09) |
 
 **Actions**
@@ -484,7 +484,7 @@ graph TD
 **Actions**
 | Action | Result | Navigates to |
 |---|---|---|
-| Change period | GET `/groups/{id}/totals?from=&to=` | – |
+| Change period | GET `/groups/{id}/totals?from=&to=` (Later; **not yet in the contract**) | – |
 
 **States:** free user → SCR-39.
 **Evidence:** group totals screen and layout, date-range picker modal observed (static).
@@ -533,7 +533,7 @@ graph TD
 | 410 | "invite no longer valid" | SCR-07 |
 | Logged in as a different email than invited | "merge accounts?" dialog | – |
 
-**States:** loading the invite preview.
+**States:** loading the invite preview (needs a preview endpoint that is **not yet in the contract**; progress.md, decision D-C).
 **Evidence:** group invite acceptance fragment and list item, the not-in-list layout and merge-accounts layout observed (static).
 
 ---
@@ -572,14 +572,14 @@ graph TD
 | Element | Type | Required | Validation / notes |
 |---|---|---|---|
 | Shared groups | list | – | tap → SCR-13 |
-| Remove friend | destructive | – | refused while there are shared groups |
+| Remove friend | destructive | – | refused while there are shared groups (so always refused for a friend who exists only through a shared group, OQ-33). **Never blocked by a balance (OQ-32):** the confirmation dialog must warn that non-group expenses and any balance with this person will be deleted, showing the current non-group balance if non-zero |
 | Block | destructive | – | V2 |
 | Convert non-group to default currency | row | – | Later, gated |
 
 **Actions**
 | Action | Result | Navigates to |
 |---|---|---|
-| Remove → confirm | DELETE `/friends/{user_id}` | SCR-08 |
+| Remove → warning dialog → confirm | DELETE `/friends/{user_id}` | SCR-08 |
 | 409 shared groups | dialog listing the groups | – |
 
 **States:** n/a.
@@ -624,7 +624,7 @@ graph TD
 | Description | text | yes | 1–200 chars |
 | Category button | icon → SCR-25 | no | default uncategorized |
 | Currency button | code → SCR-26 | yes | default = group currency, else the user's |
-| Amount | money input | yes | > 0, ≤ 99,999,999.99, decimals ≤ the currency exponent |
+| Amount | money input | yes | 1 ≤ amount_minor ≤ 9,999,999,999 (99,999,999.99 in a 2-decimal currency), decimals ≤ the currency exponent |
 | Paid by / split summary | tappable sentence "paid by X and split Y" | yes | → SCR-24 / SCR-23 |
 | Date | chip → SCR-27 | yes | default today |
 | Group chip | chip | no | change group |
@@ -830,7 +830,7 @@ graph TD
 | Element | Type | Required | Validation / notes |
 |---|---|---|---|
 | From → To | two avatars, swappable | yes | from ≠ to |
-| Amount | money | yes | > 0, ≤ 99,999,999.99 |
+| Amount | money | yes | 1 ≤ amount_minor ≤ 9,999,999,999 |
 | Currency | code | yes | default = the balance's currency |
 | Date | date | yes | default today |
 | Group | chip | no | null = non-group |
@@ -1002,7 +1002,7 @@ graph TD
 
 | Action | Result | Navigates to |
 |---|---|---|
-| Buy | Play Billing → POST `/subscriptions/verify` | back with the feature unlocked |
+| Buy | Play Billing → verify the purchase on the server (`/subscriptions/verify` is **not yet in the contract**; progress.md, decision D-C) | back with the feature unlocked |
 | Restore | query purchases | toast "restored" or "none found" |
 
 **States:** offline: "can't upgrade right now".
@@ -1061,7 +1061,7 @@ graph TD
 
 | Action | Result | Navigates to |
 |---|---|---|
-| Scan a valid code | confirmation dialog → POST `/friends/by-code` | SCR-19 |
+| Scan a valid code | confirmation dialog → `POST /friends` with `friend_code`. The name shown in the dialog needs a code-lookup endpoint that is **not yet in the contract** (progress.md, decision D-C) | SCR-19 |
 
 **States:** permission denied → explanation + settings link.
 **Evidence:** scan code activity, pager adapter, my-code layout observed (static).

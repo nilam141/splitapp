@@ -30,7 +30,7 @@ Shared test fixture (used by every flow unless stated):
 - Forgot password: `POST /auth/password-reset` → always 202 → email → link → SCR-06 → new password `newpass99` → `POST /auth/password-reset/confirm` → 200 + tokens; all other refresh tokens are revoked. A link used twice → 410.
 - Refresh token revoked on another device → the next 401 triggers 1 refresh → 401 → SCR-44 → SCR-04 with the email prefilled.
 
-**Postconditions:** 1 `users` row (`is_registered=true`); 1 active `refresh_tokens` row per logged-in device; activity entry `user.joined` (visible only to friends who invited Asha earlier).
+**Postconditions:** 1 `users` row (`is_registered=true`); 1 active `refresh_tokens` row per logged-in device. No activity entry is written (the contract's activity actions have no sign-up event).
 
 ---
 
@@ -70,7 +70,7 @@ Common steps for each sub-flow: from SCR-13 tap Add expense → SCR-22 opens wit
 
 ### 03a: Equal (default)
 1. Description "Groceries", amount `100.00` → Save.
-2. `POST /groups/G/expenses` with `{total: 10000 INR, payers:[A:10000], split:{type:equal, participants:[A,B,C]}}` → 201.
+2. `POST /groups/G/expenses` with `{total: {amount_minor: 10000, currency: INR}, payers: [{user_id: A, paid_amount_minor: 10000}], split: {type: equal, entries: [{user_id: A}, {user_id: B}, {user_id: C}]}}` → 201.
 3. Stored splits: A 3334, B 3333, C 3333 (business_rules vector 1; canonical order A, B, C).
 4. Nets: A +6666, B −3333, C −3333. Sum = 0.
 
@@ -109,7 +109,7 @@ Common steps for each sub-flow: from SCR-13 tap Add expense → SCR-22 opens wit
 
 **Alternate / error paths (all sub-flows)**
 - Description empty → "description required"; amount 0 or empty → "amount required".
-- Amount over 99,999,999.99 → refused at input.
+- Amount over 9,999,999,999 minor units (99,999,999.99 in a 2-decimal currency) → refused at input; the API returns 422 `AMOUNT_OUT_OF_RANGE`.
 - 3 decimals typed → the 3rd digit is ignored. JPY → no decimal point allowed.
 - A second group added to "with" → "only one group per expense".
 - A non-group expense that doesn't include A → 422 `CURRENT_USER_NOT_INVOLVED`.
@@ -156,7 +156,7 @@ Common steps for each sub-flow: from SCR-13 tap Add expense → SCR-22 opens wit
 **Happy path (partial)**
 1. C opens G → Settle up → SCR-30 shows "you owe Asha 33.33" (simplified suggestion C→A 3333).
 2. Tap the row → SCR-31 prefilled: from C to A, 33.33 INR, today, group G.
-3. Change the amount to `20.00` → Save → `POST /settlements` `{from:C, to:A, amount:2000 INR, group_id:G}` → 201.
+3. Change the amount to `20.00` → Save → `POST /settlements` `{from_user_id: C, to_user_id: A, amount: {amount_minor: 2000, currency: INR}, group_id: G}` → 201.
 4. Nets: A +4666, B −3333, C −1333.
 
 **Happy path (full)**
@@ -188,10 +188,10 @@ Common steps for each sub-flow: from SCR-13 tap Add expense → SCR-22 opens wit
 3. Ravi appears on SCR-08 with "settled up".
 
 **Happy path (contact, not registered)**
-4. SCR-21 → contacts primer → allow → choose "Neha" (phone +91 98xxxxxxx) → verify screen shows the number → Done → `POST /friends {name, phone}` → 201 `{is_new_user:true}` → placeholder created; 1 SMS/email invite queued (channel: OQ-25).
+4. SCR-21 → contacts primer → allow → choose "Neha" (phone +91 98xxxxxxx) → verify screen shows the number → Done → `POST /friends {name, phone_e164}` → 201 `{friend, is_new_user:true}` → placeholder created; 1 SMS/email invite queued (channel: OQ-25).
 
 **Happy path (QR, V2)**
-5. B opens Account → My code. A → SCR-42 → Scan → reads B's code → "Add Ravi?" → confirm → `POST /friends/by-code` → 201.
+5. B opens Account → My code. A → SCR-42 → Scan → reads B's code → "Add Ravi?" (the name lookup needs an endpoint that is not yet in the contract, decision D-C) → confirm → `POST /friends {friend_code}` → 201.
 
 **Alternate / error paths**
 - `abc` → "not a valid email or phone number".
@@ -241,7 +241,7 @@ Common steps for each sub-flow: from SCR-13 tap Add expense → SCR-22 opens wit
 4. C settles 30.00 USD to A → C's USD balance = 0; the INR balance is untouched.
 
 **Conversion (Later, premium)**
-5. A → SCR-14 → "convert all to INR" → confirm dialog (cannot be undone) → `POST /groups/G/convert-currency {target:INR}`.
+5. A → SCR-14 → "convert all to INR" → confirm dialog (cannot be undone) → `POST /groups/G/convert-currency {target:INR}` (Later; this endpoint is **not yet in the contract**).
 6. The server fetches today's rate (for example 1 USD = 83.2156 INR) and rewrites every USD expense and settlement in G. A 9000 USD expense becomes 748940 INR minor units (9000 × 83.2156 = 748940.4 → 748940). The splits are re-allocated with the largest-remainder rule (business_rules §7); the original amounts are stored in `fx_*` fields.
 
 **Alternate / error paths**

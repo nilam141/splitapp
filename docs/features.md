@@ -178,7 +178,8 @@ Abbreviations: "the reference app" = the analysed APK. "Pro" = its paid tier. Ou
 
 **Acceptance criteria**
 1. Given A and B share 0 groups, When A removes B, Then the friendship is soft-deleted, every non-group expense between only A and B is soft-deleted, and B gets no email or push but sees an activity entry.
-2. Given A and B share 1 group, When A tries to remove B, Then the API returns 409 `SHARED_GROUPS_EXIST` and the app lists the shared group.
+2. Given A and B share 1 group, When A tries to remove B, Then the API returns 409 `SHARED_GROUPS_EXIST` and the app lists the shared group. This also applies when B is a friend only because of the shared group (no stored friendship, OQ-33).
+2a. Given A and B share 0 groups and have a non-zero non-group balance, When A confirms the removal after the warning dialog, Then the API returns 204 and the non-group expenses are deleted; a balance never blocks removal (OQ-32).
 3. (V2) Given A blocks B, When B later adds a non-group expense with A, Then A gets no notification and the expense is hidden from A's feeds.
 
 **Evidence:** friendship-settings layout with a shared-groups list, "cannot delete friend while in shared groups" text, the remove explanation (non-group expenses deleted, they see it in activity, no email or push) and the block explanation observed (static).
@@ -578,7 +579,7 @@ Abbreviations: "the reference app" = the analysed APK. "Pro" = its paid tier. Ou
 1. Given expense E, When A posts "paid in cash" (≤ 1000 characters; **decision**), Then it appears under E for all participants and 1 notification goes to each other participant.
 2. Given an empty or whitespace-only comment, When Send is tapped, Then nothing is sent.
 3. Given B edits E's amount, When A opens E, Then a system comment describes the change (old total → new total).
-4. Given A deletes their own comment, Then it is removed. Deleting someone else's comment returns 403.
+4. Given A deletes their own comment, Then it is removed. Deleting someone else's comment returns 403. (No delete-comment endpoint exists in the contract yet; progress.md, decision D-C. Not in any slice until decided.)
 
 **Evidence:** expense-details cells for the current user's comment, another user's comment and a system comment, the comment bar fragment, "N new comments" and the comments notification channel observed (static).
 
@@ -787,7 +788,7 @@ Abbreviations: "the reference app" = the analysed APK. "Pro" = its paid tier. Ou
 **Acceptance criteria**
 1. Given the default currency is INR, When the user picks USD, Then `PATCH /users/me` saves `default_currency=USD` and new non-group expenses default to USD. Existing expenses keep their currency.
 2. Given a new email already used by another account, When saved, Then the API returns 409.
-3. Given an avatar over 5 MB, When uploaded, Then the API returns 413.
+3. Given an avatar over 5 MB, When uploaded, Then the API returns 413. (No avatar upload endpoint exists in the contract yet; progress.md, decision D-C. Not in any slice until decided.)
 
 **Evidence:** account tab layout, avatar helper, country picker, "I use X as my currency" and device-settings activity observed (static).
 

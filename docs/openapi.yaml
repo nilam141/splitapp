@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: SplitApp API
-  version: 0.1.0
+  version: 0.1.1
   description: >
     Original API design for our own backend (FastAPI). Observed behavior of any
     other app is reference only. This file is the single source of truth for the
@@ -11,12 +11,14 @@ info:
     Conventions (REA, v0.1.0):
     - All money is integer minor units in `amount_minor` (or a field ending in `_minor`) next to an ISO 4217 `currency`. Never a float or a decimal string.
     - All ids are UUID strings. Timestamps are RFC 3339 UTC. Calendar dates (`expense_date`, `settled_on`) are `YYYY-MM-DD` in the user's local date.
-    - List endpoints use cursor pagination: `?limit=` (1–100, default 50) and `?cursor=` (opaque). Responses carry `next_cursor` (null at the end).
+    - Lists that can grow without bound (expenses, comments, settlements, activity) use cursor pagination: `?limit=` (1–100, default 50) and `?cursor=` (opaque). Responses carry `next_cursor` (null at the end). Expense lists are ordered by `expense_date` desc, then `created_at` desc, then `id` desc. Bounded collections (friends, groups, recurring rules, categories, currencies) are returned whole in one response, with no cursor.
     - Errors always use the `Error` schema. `code` values are listed on that schema; business-rule codes match docs/business_rules.md.
-    - Write endpoints that create resources accept an optional `Idempotency-Key` header (UUID). A repeat with the same key and user returns the original response.
+    - Every operation that needs a bearer token can also return 401 (`TOKEN_EXPIRED` or `TOKEN_INVALID`) and 5xx. This is not repeated on each operation.
+    - The following creating endpoints accept an optional `Idempotency-Key` header (UUID): POST /friends, POST /groups, POST /groups/{id}/expenses, POST /expenses, POST /settlements. A repeat with the same key and user returns the original response (same status and body) for 24 hours. Other endpoints ignore the header.
     - Updates of expenses, settlements and groups require `version` (optimistic locking). A stale version returns 409 VERSION_CONFLICT.
     - Premium-gated operations return 402 PREMIUM_REQUIRED for free users.
-    - Endpoints marked "V2" or "Later" in their description are designed now so the contract is stable, but may return 501 until their slice ships.
+    - Endpoints marked "V2" or "Later" in their description are designed now so the contract is stable, but may return 501 (`code: NOT_IMPLEMENTED`) until their slice ships. The same applies to the optional `recurrence` field on expense create.
+    - Known gaps: features in docs/features.md that need an endpoint not listed here (push-device registration, subscription verification, invite preview, friend-code lookup, comment delete, avatar upload, account deletion, Google sign-in, group totals, currency conversion) are deliberately absent until the owner approves their shapes (see docs/progress.md, 2026-11-07 entry).
 
 servers:
   - url: http://localhost:8000
@@ -165,12 +167,20 @@ components:
             SPLIT_PERCENT_MISMATCH, SPLIT_NO_SHARES, SPLIT_ADJUSTMENT_EXCEEDS_TOTAL, PAYER_SUM_MISMATCH,
             DUPLICATE_PAYER, DUPLICATE_PARTICIPANT, PARTICIPANT_NOT_MEMBER, CURRENT_USER_NOT_INVOLVED,
             EXPENSE_HAS_DEPARTED_MEMBER, ALREADY_DELETED, NOT_DELETED, OUTSTANDING_BALANCE, SHARED_GROUPS_EXIST,
-            CANNOT_FRIEND_SELF, SAME_PARTY, INVALID_DATE_RANGE, GROUP_TOO_LARGE, FX_UNAVAILABLE
+            CANNOT_FRIEND_SELF, SAME_PARTY, INVALID_DATE_RANGE, GROUP_TOO_LARGE, FX_UNAVAILABLE, NOT_IMPLEMENTED
         message: { type: string, description: Human-readable, English, safe to show }
         details:
           type: object
           additionalProperties: true
-          description: Optional structured context (e.g. expected/actual/difference in minor units, field errors)
+          description: >
+            Optional structured context. Keys by code: SPLIT_SUM_MISMATCH, PAYER_SUM_MISMATCH and
+            SPLIT_ADJUSTMENT_EXCEEDS_TOTAL carry `expected`, `actual`, `difference` (actual minus expected, minor units);
+            SPLIT_PERCENT_MISMATCH carries `difference_bp` (sum of basis points minus 10000);
+            OUTSTANDING_BALANCE carries `balances` (array of BalanceLine);
+            SHARED_GROUPS_EXIST carries `group_ids`; VERSION_CONFLICT carries `current_version`;
+            EMAIL_TAKEN carries `field` (`email` or `phone_e164`);
+            VALIDATION_ERROR carries `fields` (array of `{field, message}`); PREMIUM_REQUIRED carries `feature`;
+            RATE_LIMITED carries `retry_after_seconds`.
 
     # ---------- auth ----------
     RegisterRequest:
@@ -181,7 +191,7 @@ components:
         password: { type: string, minLength: 8, maxLength: 128 }
         name: { type: string, minLength: 1, maxLength: 100 }
         default_currency: { type: string, minLength: 3, maxLength: 3, default: INR }
-        time_zone: { type: string, example: Asia/Kolkata }
+        time_zone: { type: string, default: Asia/Kolkata, example: Asia/Kolkata }
       example: { email: asha@example.com, password: abcd1234, name: Asha, default_currency: INR, time_zone: Asia/Kolkata }
     LoginRequest:
       type: object
@@ -287,7 +297,7 @@ components:
         created_at: { type: string, format: date-time }
     UserUpdate:
       type: object
-      description: Partial update; send only changed fields.
+      description: Partial update; send only changed fields. `notification_prefs` is merged key by key (omitted keys keep their value).
       properties:
         name: { type: string, minLength: 1, maxLength: 100 }
         email: { type: string, format: email }
@@ -329,7 +339,14 @@ components:
         breakdown:
           type: array
           items: { $ref: '#/components/schemas/ScopedBalance' }
-        settled_up_since: { type: string, format: date-time, nullable: true, description: When every balance last became 0; drives the "settled over a month" collapse }
+        settled_up_since:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            Derived, not stored. When every balance with this friend last became 0. null = a balance is currently
+            non-zero, or there has been no activity yet. The client hides a friend behind "show N settled-up friends"
+            only when this is non-null and older than 30 days.
       example:
         user: { id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, name: Ravi, email: ravi@example.com, avatar_url: null, is_registered: true }
         balances: [ { amount_minor: 150000, currency: INR } ]
@@ -346,7 +363,7 @@ components:
           items: { $ref: '#/components/schemas/Friend' }
     FriendCreate:
       type: object
-      description: Provide exactly one of email or phone_e164. name is required when the person is not registered.
+      description: Provide exactly one of email, phone_e164 or friend_code (V2). name is required when the person is not registered (email or phone_e164 only). With friend_code, an unknown or reset code returns 410.
       properties:
         email: { type: string, format: email }
         phone_e164: { type: string, pattern: '^\+[1-9][0-9]{6,14}$' }
@@ -456,6 +473,10 @@ components:
         phone_e164: { type: string }
     GroupCreate:
       type: object
+      description: >
+        The creator is added automatically as member 0 (sort_index 0), then member_user_ids in request order, then
+        new_members in request order. A group has at most 200 active members including the creator
+        (more returns 422 GROUP_TOO_LARGE).
       required: [name]
       properties:
         name: { type: string, minLength: 1, maxLength: 100 }
@@ -494,12 +515,15 @@ components:
       example: { version: 1, simplify_debts: false }
     MembersAdd:
       type: object
+      description: New members get the next sort_index values in request order (user_ids first, then new_members). The 200-member cap applies (422 GROUP_TOO_LARGE).
       properties:
         user_ids:
           type: array
+          maxItems: 200
           items: { type: string, format: uuid }
         new_members:
           type: array
+          maxItems: 200
           items: { $ref: '#/components/schemas/NewMember' }
       example: { user_ids: [ 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0003 ], new_members: [] }
     InviteLink:
@@ -563,7 +587,9 @@ components:
           nullable: true
           description: Only for POST /expenses; null = non-group. Ignored on POST /groups/{id}/expenses (path wins).
         description: { type: string, minLength: 1, maxLength: 200 }
-        total: { $ref: '#/components/schemas/Money' }
+        total:
+          allOf: [ { $ref: '#/components/schemas/Money' } ]
+          description: amount_minor must be 1..9999999999, otherwise 422 AMOUNT_OUT_OF_RANGE. currency must be a supported code, otherwise 422 CURRENCY_UNKNOWN.
         category_id: { type: integer, default: 1 }
         expense_date: { type: string, format: date }
         notes: { type: string, maxLength: 2000, nullable: true }
@@ -576,7 +602,7 @@ components:
     ExpenseUpdate:
       type: object
       required: [version]
-      description: Partial update. If payers or split are sent, both are re-validated against the (new) total.
+      description: Partial update. If payers or split are sent, both are re-validated against the (new) total. The currency is fixed at creation; `total.currency` must equal the stored currency, otherwise 422 VALIDATION_ERROR (details.fields names `total.currency`). To change a currency, delete and recreate the expense.
       properties:
         version: { type: integer }
         description: { type: string, minLength: 1, maxLength: 200 }
@@ -710,6 +736,7 @@ components:
         simplified: { type: boolean, description: true when transfers come from debt simplification (business_rules §5); false = pairwise (§4.2) }
         members:
           type: array
+          description: Active members in canonical order (group_members.sort_index ascending)
           items:
             type: object
             required: [user_id, balances]
@@ -789,6 +816,7 @@ components:
     SettlementUpdate:
       type: object
       required: [version]
+      description: Partial update. The currency is fixed at creation; `amount.currency` must equal the stored currency, otherwise 422 VALIDATION_ERROR (details.fields names `amount.currency`).
       properties:
         version: { type: integer }
         amount: { $ref: '#/components/schemas/Money' }
@@ -942,9 +970,20 @@ components:
         status: { type: string, enum: [pending, ready, failed] }
         scope: { type: string, enum: [group, friend] }
         format: { type: string, enum: [csv] }
-        download_url: { type: string, nullable: true, description: Signed URL, valid 15 minutes, present when ready }
+        download_url:
+          type: string
+          nullable: true
+          description: >
+            Signed URL, valid 15 minutes, present when ready. Every poll of the export resource issues a fresh URL
+            until the file is purged.
         file_name: { type: string, nullable: true, example: flat-4b-2026-11-05.csv }
-        expires_at: { type: string, format: date-time, nullable: true }
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            Expiry of the current download_url (about 15 minutes after this response). The file itself is purged
+            24 hours after creation, after which the export resource returns 404.
         created_at: { type: string, format: date-time }
       example: { id: e0000000-0000-4000-8000-000000000001, status: pending, scope: group, format: csv, download_url: null, file_name: null, expires_at: null, created_at: '2026-11-05T17:00:00Z' }
 
@@ -1149,11 +1188,11 @@ paths:
               schema: { $ref: '#/components/schemas/UserMe' }
         "401": { $ref: '#/components/responses/Unauthorized' }
         "409":
-          description: Email or phone already used by another account
+          description: Email or phone already used by another account (details.field says which)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
-              example: { code: EMAIL_TAKEN, message: This email is used by another account }
+              example: { code: EMAIL_TAKEN, message: This email is used by another account, details: { field: email } }
         "422": { $ref: '#/components/responses/Unprocessable' }
 
   /friends:
@@ -1217,7 +1256,7 @@ paths:
     delete:
       tags: [friends]
       summary: Remove a friend
-      description: Fails while the two users share any non-deleted group. Soft-deletes non-group expenses involving only the two users.
+      description: Fails with 409 SHARED_GROUPS_EXIST while the two users share any non-deleted group (this includes friends who exist only through a shared group; they have no stored friendship). Otherwise soft-deletes non-group expenses involving only the two users, regardless of any balance, and returns 204. Returns 404 when there is no shared group and no active explicit friendship.
       responses:
         "204": { description: Removed }
         "404": { $ref: '#/components/responses/NotFound' }
@@ -1314,7 +1353,12 @@ paths:
         "204": { description: Deleted }
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
-        "409": { $ref: '#/components/responses/Conflict' }
+        "409":
+          description: Group is already deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: ALREADY_DELETED, message: The group has already been deleted }
 
   /groups/{id}/restore:
     parameters:
@@ -1492,8 +1536,14 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Expense' }
-        "402": { $ref: '#/components/responses/PaymentRequired' }
+        "402":
+          description: Not returned by default. Reserved for a daily free-tier add-expense cap, only if the owner adopts one (open_questions OQ-19 / D7).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: PREMIUM_REQUIRED, message: Daily limit reached, details: { feature: add_expense } }
         "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
         "422": { $ref: '#/components/responses/Unprocessable' }
 
   /expenses:
@@ -1506,7 +1556,10 @@ paths:
         - name: q
           in: query
           required: false
-          description: Case-insensitive substring on description and notes, or an amount like 450.00 (premium)
+          description: >
+            Premium. Case-insensitive substring on description and notes. If the text parses as a decimal number, expenses
+            whose total equals it in their own currency exponent also match (parsed server-side with integer maths;
+            this is search input, not a money field).
           schema: { type: string, minLength: 2 }
         - name: friend_user_id
           in: query
@@ -1824,6 +1877,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Settlement' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
         "409": { $ref: '#/components/responses/Conflict' }
         "422": { $ref: '#/components/responses/Unprocessable' }
     delete:
@@ -1835,7 +1890,14 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Settlement' }
-        "409": { $ref: '#/components/responses/Conflict' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409":
+          description: Already deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: ALREADY_DELETED, message: The payment has already been deleted }
 
   /settlements/{id}/restore:
     parameters:
@@ -1849,7 +1911,14 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Settlement' }
-        "409": { $ref: '#/components/responses/Conflict' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409":
+          description: Not deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: NOT_DELETED, message: The payment is not deleted }
 
   /activity:
     get:
@@ -1978,7 +2047,7 @@ paths:
     post:
       tags: [reminders]
       summary: Email a settle-up reminder to someone who owes you (V2)
-      description: Rate limit 1 per (sender, recipient) per 60 seconds.
+      description: Rate limit 1 per (sender, recipient) per 60 seconds. The server does not check that the recipient owes the sender.
       requestBody:
         required: true
         content:

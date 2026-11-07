@@ -29,7 +29,7 @@ Backend and mobile touch different folders, so they can run in parallel.
 
 ```
 Implement Slice 1 from docs/tasks.md.
-1. Run the backend subagent for S1-B-1, S1-B-2, S1-B-3 and the mobile subagent
+1. Run the backend subagent for S1-B-1, S1-B-2, S1-B-3, S1-B-4 and the mobile subagent
    for S1-M-1, S1-M-2, S1-M-3 in parallel. Each works only in its own folder.
 2. When both finish, run the qa subagent for S1-Q-1.
 3. Then run the reviewer subagent on the full slice diff.

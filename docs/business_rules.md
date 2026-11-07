@@ -14,15 +14,17 @@
 - All intermediate products (`T × weight`) fit in a signed 64-bit integer: 9,999,999,999 × 10,000 (basis points) ≈ 1e14 < 9.2e18. Python ints are unbounded anyway. The TypeScript client must use integer-safe maths: values stay < 2^53 ≈ 9.0e15, so `number` is safe for the products used here; property tests assert this.
 
 **Canonical order.** Wherever leftover units are handed out, participants are ordered by:
-1. Group expense: `group_members.sort_index` (join order) ascending.
-2. Non-group expense: the expense creator first, then the others by ascending `user_id` (uuid string compare).
+1. Group expense: `group_members.sort_index` (join order) ascending. The creator of the group is 0; members added in one request follow in request order (`member_user_ids`, then `new_members`).
+2. Non-group expense: the expense creator (`created_by`) first, then the others by ascending `user_id` (uuid string compare).
 
-The server computes the order; client order is ignored. The client mirrors the same rule only for previews. (Reference order unknown: OQ-01.)
+The server computes the order; client order is ignored. The result is stored in `expense_splits.sort_index`. The client mirrors the same rule only for previews. `GET /groups/{id}/balances` lists members in the same order. (Reference order unknown: OQ-01.)
 
 ## 2. Split types
 For each type: inputs, validation, algorithm, rounding rule, worked example.
 
-All types produce `owed[u]` for each participant with `Σ owed = T` exactly. The participant set `P` must have ≥ 1 member. Every participant must be a current group member (group expense) or the creator or a friend (non-group).
+All types produce `owed[u]` for each participant with `Σ owed = T` exactly. The participant set `P` must have ≥ 1 member. Every participant and every payer must be a current group member (group expense) or the creator or a friend (non-group); otherwise `422 PARTICIPANT_NOT_MEMBER`. `T` itself must satisfy `1 ≤ T ≤ 9,999,999,999`, otherwise `422 AMOUNT_OUT_OF_RANGE`, and the currency must be supported, otherwise `422 CURRENCY_UNKNOWN`.
+
+Error `details` keys (also listed on the openapi `Error` schema): `SPLIT_SUM_MISMATCH`, `PAYER_SUM_MISMATCH` and `SPLIT_ADJUSTMENT_EXCEEDS_TOTAL` carry `expected`, `actual`, `difference` (= actual − expected, minor units; for the adjustment error expected = T and actual = Σ adj). `SPLIT_PERCENT_MISMATCH` carries `difference_bp`.
 
 ### 2.1 Equal
 - **Inputs:** `T`, a participant set `P` (n ≥ 1).
@@ -149,7 +151,7 @@ def simplify(nets, canonical):                         # nets: {user: int}, Σ =
 - **Full settle:** the UI pre-fills `amount = |suggested edge|` in its currency. After saving, that edge becomes 0 and, when it was the only one, both members' nets are 0.
 - **Partial settle:** any `1 ≤ amount < edge` is allowed. The remainder stays owed (5000 owed, 2000 paid → 3000 owed).
 - **Overpayment:** `amount > edge` is allowed after a client-side confirmation. The direction flips (3000 owed, 5000 paid → the receiver now owes 2000). The API doesn't block it (OQ-15).
-- **Who can record:** either party, or any group member for a group settlement (**decision**, OQ-13).
+- **Who can record:** either party, or any group member for a group settlement (**decision**, OQ-13). For a non-group settlement the creator must be the payer or the receiver, otherwise `403 FORBIDDEN`. For a group settlement both parties must be current members, otherwise `422 PARTICIPANT_NOT_MEMBER`. `from_user_id = to_user_id` → `422 SAME_PARTY`.
 - **Currency:** a settlement has its own currency and only affects that currency's balances. Paying USD against an INR debt leaves the INR debt and creates a USD balance.
 - **Settling across groups vs. overall friend balance:** "settle all with friend f" creates one settlement per (scope, currency) with a non-zero edge between the two, all sharing a `batch_id`, each for the exact edge amount. It does not create a single cross-group payment. The friend total becomes 0 in each currency.
 - **Edit/delete/restore:** soft delete; balances are recomputed; restore re-applies the settlement.
@@ -162,6 +164,7 @@ def simplify(nets, canonical):                         # nets: {user: int}, Σ =
   - The original amount, currency and rate go into `fx_*` columns; activity `group.currency_converted` is written.
 - **Rate source and rounding:** one provider, daily rates stored in `exchange_rates` (OQ-17). Rounding is ROUND_HALF_UP to the target's minor unit, applied once per total (never per split).
 - **Balances displayed per currency or converted:** per currency. No "approximate total in default currency" in MVP (OQ-29).
+- **Currency is immutable after creation (decided 2026-11-07, OQ-31).** `PATCH /expenses/{id}` and `PATCH /settlements/{id}` cannot change the currency. `ExpenseUpdate.total` and `SettlementUpdate.amount` are `Money` objects, so the field is structurally present; the server accepts it only when `currency` equals the stored currency, and otherwise returns `422 VALIDATION_ERROR` with `details.fields = [{field: "total.currency" (or "amount.currency"), message: ...}]`. To change a currency, delete the item and create a new one. The only other way a currency changes is the Later "convert" action above, which is a separate operation (not PATCH). See vector 41.
 
 ## 8. Edge cases
 - **Deleted or removed user with a non-zero balance:** a member can't leave or be removed while their group balance ≠ 0 in any currency → `409 OUTSTANDING_BALANCE` (observed (static)). A deleted *account* keeps its rows. The name becomes "Deleted user" and balances stay visible to the others, who can still record settlements against it (OQ-D5).
@@ -172,7 +175,7 @@ def simplify(nets, canonical):                         # nets: {user: int}, Σ =
 - **Recurring expense when a member has left:** the next occurrence drops departed members. Equal splits run over the remaining participants. Percent and shares splits re-normalise the remaining weights (e.g. 50/30/20 with the 20% member gone → weights 50:30 → 62.5/37.5). An exact split that no longer sums gets converted to shares using the old amounts as weights. Adjustment keeps the remaining adjustments, and if their total now exceeds T, it falls back to equal. If no participant remains, the rule deactivates. (**decision**, OQ-16)
 - **Expense with only the creator involved** (group expense, A pays, split only A): allowed but pointless; the net is 0. The UI warns.
 - **Non-group expense not involving the creator** → `422 CURRENT_USER_NOT_INVOLVED` (observed (static)).
-- **More than one group on an expense** → rejected (observed (static)).
+- **More than one group on an expense** → rejected (observed (static)). This is enforced by the UI only. The API takes a single nullable `group_id`, so a second group cannot be expressed. On `POST /groups/{id}/expenses` a `group_id` in the body is ignored (the path wins).
 - **Same user twice in splits** → `422 DUPLICATE_PARTICIPANT`.
 - **Concurrent edits** → optimistic locking on `version` → `409 VERSION_CONFLICT`.
 - **Placeholder merge:** when a placeholder is claimed, every row referencing the placeholder id is re-pointed to the real user in one transaction. If both appear on the same expense, their payer and split rows are summed into one row.
@@ -193,6 +196,26 @@ Observed (static) as premium-only in the reference app: currency conversion, cha
 | Daily add-expense cap | none (recommended) | none |
 
 **When a limit is hit:** the API returns `402 PREMIUM_REQUIRED` with `{feature: "<key>"}`. The client opens SCR-39 and does not retry. Gating is enforced server-side; the client gate is cosmetic.
+
+## 10. Friends and reminders
+
+### 10.1 Friend list (decided 2026-11-07, OQ-33)
+- Only explicit friendships (friend code, email, phone, personal link) are stored.
+- `GET /friends` returns explicit active friends UNION users sharing at least one non-deleted group with the caller (both with `left_at` null), computed at read time using the `group_members (user_id, group_id)` index. A user in both sets appears once.
+- Implicit friends (shared group only) have no row: they cannot be removed and vanish when no shared group remains. A shared group counts only while it is not soft-deleted.
+- `GET /friends/{user_id}` works for any user in the derived list, else 404. `POST /friends` for a user who is already an implicit friend creates the explicit row and returns 201 (an explicit row did not exist); it returns 200 only if an active explicit row exists.
+- Non-group expenses and settlements need the other user to be in the derived friend list at creation (otherwise `422 PARTICIPANT_NOT_MEMBER`). What happens to such items once an implicit friendship ends is open: OQ-37.
+
+### 10.2 Removing a friend (decided 2026-11-07, OQ-32/33)
+`DELETE /friends/{user_id}` evaluates in this order:
+1. The two users share at least one non-deleted group (explicit or implicit friend) -> `409 SHARED_GROUPS_EXIST` with `details.group_ids`. This is the response for an implicit-only friend; it needs no new code or contract change, and the message tells the caller to leave the shared groups first.
+2. No shared group and no active explicit friendship row -> `404 NOT_FOUND` (covers strangers and already-removed friends).
+3. Otherwise -> `204`. The friendship row becomes `removed`, and every non-group expense involving only the two users is soft-deleted, **regardless of any balance**. Removal is never blocked by a non-zero non-group balance (OQ-32); the debt is erased. Group expenses are untouched. (Non-group settlements: OQ-37.)
+
+The mobile UI must show a confirmation warning before calling DELETE, saying that non-group expenses and any balance with this person will be deleted (screens SCR-20).
+
+### 10.3 Reminders (decided 2026-11-07, OQ-34)
+`POST /reminders` does **not** check that the recipient owes the sender (in the given scope or at all). Any authenticated sender may remind any permitted recipient. Checks that still apply: the recipient exists and is a friend (derived list) or a co-member of `group_id` if given (else 422 `VALIDATION_ERROR`), the sender is not the recipient, premium gating if adopted (D1), and the rate limit of 1 per (sender, recipient) per 60 seconds (`429 RATE_LIMITED`). The mobile UI still hides the Remind button at a zero balance.
 
 ## Test vectors (REA: provide at least 15)
 Participants are listed in canonical order. "→" means "pays". Amounts are minor units.
@@ -240,6 +263,11 @@ Participants are listed in canonical order. "→" means "pays". Amounts are mino
 | 38 | Recurring after member left | Rent 3,000,000 equal A, B, C; B leaves | next occurrence: A 1,500,000, C 1,500,000 |
 | 39 | Property: sums | random T in [1, 9,999,999,999], random type, 1–50 participants | Σ owed = T; every owed ≥ 0 |
 | 40 | Property: zero-sum | random group history | Σ nets = 0 per currency; applying simplify() output → all nets 0; transfers ≤ N−1 |
+| 41 | PATCH cannot change currency | Expense E (INR, total 10000); PATCH `{version: 1, total: {amount_minor: 10000, currency: USD}}`. Same for a settlement with `amount.currency` | 422 VALIDATION_ERROR, `details.fields[0].field` = `total.currency` (`amount.currency` for a settlement); E unchanged, version unchanged. PATCH with `currency: INR` and a new amount succeeds |
+| 42 | Remove friend, balance not blocking | A and B are explicit friends, share no group; non-group expense E (A paid 6000, split equal A, B), so B owes A 3000 | DELETE /friends/B -> 204; E soft-deleted; A and B balance 0; B absent from A's list |
+| 43 | Remove implicit-only friend | A and B share group G, no explicit row | DELETE /friends/B -> 409 SHARED_GROUPS_EXIST with `group_ids` [G]; after both leave G (or G is deleted), DELETE -> 404 |
+| 44 | Derived friend list | A in G1 with B, C; explicit friend D; A leaves G1 | before: A's list = {B, C, D}, no `friendships` rows for B or C; after: {D} |
+| 45 | Reminder without debt | A reminds B; B owes A nothing | 202 (no balance check); a second call within 60 s -> 429 RATE_LIMITED |
 
 Notes for QA:
 - Yearly recurrence anchors on the anchor date: Feb 29 falls back to Feb 28 in non-leap years and returns to Feb 29 in the next leap year (vector 37).
