@@ -1,0 +1,2024 @@
+openapi: 3.0.3
+info:
+  title: SplitApp API
+  version: 0.1.0
+  description: >
+    Original API design for our own backend (FastAPI). Observed behavior of any
+    other app is reference only. This file is the single source of truth for the
+    backend and mobile agents. Do not change it without logging in docs/progress.md.
+
+
+    Conventions (REA, v0.1.0):
+    - All money is integer minor units in `amount_minor` (or a field ending in `_minor`) next to an ISO 4217 `currency`. Never a float or a decimal string.
+    - All ids are UUID strings. Timestamps are RFC 3339 UTC. Calendar dates (`expense_date`, `settled_on`) are `YYYY-MM-DD` in the user's local date.
+    - List endpoints use cursor pagination: `?limit=` (1–100, default 50) and `?cursor=` (opaque). Responses carry `next_cursor` (null at the end).
+    - Errors always use the `Error` schema. `code` values are listed on that schema; business-rule codes match docs/business_rules.md.
+    - Write endpoints that create resources accept an optional `Idempotency-Key` header (UUID). A repeat with the same key and user returns the original response.
+    - Updates of expenses, settlements and groups require `version` (optimistic locking). A stale version returns 409 VERSION_CONFLICT.
+    - Premium-gated operations return 402 PREMIUM_REQUIRED for free users.
+    - Endpoints marked "V2" or "Later" in their description are designed now so the contract is stable, but may return 501 until their slice ships.
+
+servers:
+  - url: http://localhost:8000
+    description: Local (Android emulator uses http://10.0.2.2:8000)
+
+tags:
+  - name: system
+  - name: auth
+  - name: users
+  - name: friends
+  - name: groups
+  - name: expenses
+  - name: comments
+  - name: balances
+  - name: settlements
+  - name: activity
+  - name: recurring
+  - name: exports
+  - name: reference
+  - name: reminders
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    GroupId:
+      name: id
+      in: path
+      required: true
+      description: Group id
+      schema: { type: string, format: uuid }
+    ExpenseId:
+      name: id
+      in: path
+      required: true
+      description: Expense id
+      schema: { type: string, format: uuid }
+    SettlementId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    UserIdPath:
+      name: user_id
+      in: path
+      required: true
+      description: A user id, or the literal `me` where noted
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema: { type: string }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string, format: uuid }
+
+  responses:
+    BadRequest:
+      description: Malformed request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing, invalid or expired access token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: TOKEN_EXPIRED, message: Access token expired }
+    PaymentRequired:
+      description: Feature requires premium
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: PREMIUM_REQUIRED, message: This feature requires premium, details: { feature: export } }
+    Forbidden:
+      description: Authenticated but not allowed (not a member / participant)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: FORBIDDEN, message: You are not a member of this group }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: NOT_FOUND, message: Expense not found }
+    Conflict:
+      description: State conflict (version, balance, duplicate)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: VERSION_CONFLICT, message: The expense was changed by someone else, details: { current_version: 3 } }
+    Gone:
+      description: Token or link expired or revoked
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: LINK_EXPIRED, message: This link is no longer valid }
+    Unprocessable:
+      description: Validation or business-rule failure
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: SPLIT_SUM_MISMATCH, message: Split does not add up to the total, details: { expected: 10000, actual: 9000, difference: -1000 } }
+    TooManyRequests:
+      description: Rate limited
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: RATE_LIMITED, message: Please wait before trying again, details: { retry_after_seconds: 60 } }
+
+  schemas:
+    Money:
+      type: object
+      required: [amount_minor, currency]
+      properties:
+        amount_minor:
+          type: integer
+          description: Integer minor units (paise/cents). Never a float.
+          example: 10000
+        currency:
+          type: string
+          example: INR
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: >
+            Machine-readable code. Known values: VALIDATION_ERROR, INVALID_CREDENTIALS, TOKEN_EXPIRED,
+            TOKEN_INVALID, EMAIL_TAKEN, FORBIDDEN, NOT_FOUND, VERSION_CONFLICT, RATE_LIMITED, LINK_EXPIRED,
+            PREMIUM_REQUIRED, AMOUNT_OUT_OF_RANGE, CURRENCY_UNKNOWN, SPLIT_NO_PARTICIPANTS, SPLIT_SUM_MISMATCH,
+            SPLIT_PERCENT_MISMATCH, SPLIT_NO_SHARES, SPLIT_ADJUSTMENT_EXCEEDS_TOTAL, PAYER_SUM_MISMATCH,
+            DUPLICATE_PAYER, DUPLICATE_PARTICIPANT, PARTICIPANT_NOT_MEMBER, CURRENT_USER_NOT_INVOLVED,
+            EXPENSE_HAS_DEPARTED_MEMBER, ALREADY_DELETED, NOT_DELETED, OUTSTANDING_BALANCE, SHARED_GROUPS_EXIST,
+            CANNOT_FRIEND_SELF, SAME_PARTY, INVALID_DATE_RANGE, GROUP_TOO_LARGE, FX_UNAVAILABLE
+        message: { type: string, description: Human-readable, English, safe to show }
+        details:
+          type: object
+          additionalProperties: true
+          description: Optional structured context (e.g. expected/actual/difference in minor units, field errors)
+
+    # ---------- auth ----------
+    RegisterRequest:
+      type: object
+      required: [email, password, name]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 8, maxLength: 128 }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        default_currency: { type: string, minLength: 3, maxLength: 3, default: INR }
+        time_zone: { type: string, example: Asia/Kolkata }
+      example: { email: asha@example.com, password: abcd1234, name: Asha, default_currency: INR, time_zone: Asia/Kolkata }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+      example: { email: asha@example.com, password: abcd1234 }
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token: { type: string }
+      example: { refresh_token: rt_9f2c1b7e4a0d4c3f8e1b }
+    TokenPair:
+      type: object
+      required: [access_token, refresh_token, token_type, expires_in]
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string, description: Opaque; rotated on every refresh }
+        token_type: { type: string, enum: [bearer] }
+        expires_in: { type: integer, description: Access token lifetime in seconds, example: 900 }
+    AuthResponse:
+      allOf:
+        - $ref: '#/components/schemas/TokenPair'
+        - type: object
+          required: [user]
+          properties:
+            user: { $ref: '#/components/schemas/UserMe' }
+      example:
+        access_token: eyJhbGciOiJIUzI1NiJ9.e30.sig
+        refresh_token: rt_9f2c1b7e4a0d4c3f8e1b
+        token_type: bearer
+        expires_in: 900
+        user:
+          id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001
+          email: asha@example.com
+          name: Asha
+          phone_e164: null
+          default_currency: INR
+          time_zone: Asia/Kolkata
+          avatar_url: null
+          is_registered: true
+          plan: free
+          premium_until: null
+          friend_code: K7Q2M9XP
+          notification_prefs: { expense_added: true, expense_updated: true, comment_added: true, added_to_group: true, removed_from_group: true, group_updated: true, friend_added: true, friend_removed: true, payment_recorded: true, reminder: true }
+          created_at: '2026-11-05T14:00:00Z'
+    PasswordResetRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+      example: { email: asha@example.com }
+    PasswordResetConfirm:
+      type: object
+      required: [token, new_password]
+      properties:
+        token: { type: string }
+        new_password: { type: string, minLength: 8, maxLength: 128 }
+      example: { token: pr_3b9d0c6a8f, new_password: newpass99 }
+
+    # ---------- users ----------
+    UserPublic:
+      type: object
+      required: [id, name, is_registered]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, nullable: true, description: Shown only to friends and co-members }
+        avatar_url: { type: string, nullable: true }
+        is_registered: { type: boolean, description: false = placeholder created by an invite }
+      example: { id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, name: Ravi, email: ravi@example.com, avatar_url: null, is_registered: true }
+    NotificationPrefs:
+      type: object
+      properties:
+        expense_added: { type: boolean }
+        expense_updated: { type: boolean }
+        comment_added: { type: boolean }
+        added_to_group: { type: boolean }
+        removed_from_group: { type: boolean }
+        group_updated: { type: boolean }
+        friend_added: { type: boolean }
+        friend_removed: { type: boolean }
+        payment_recorded: { type: boolean }
+        reminder: { type: boolean }
+    UserMe:
+      type: object
+      required: [id, email, name, default_currency, time_zone, is_registered, plan, notification_prefs, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        name: { type: string }
+        phone_e164: { type: string, nullable: true, example: '+919800000001' }
+        default_currency: { type: string, example: INR }
+        time_zone: { type: string, example: Asia/Kolkata }
+        avatar_url: { type: string, nullable: true }
+        is_registered: { type: boolean }
+        plan: { type: string, enum: [free, premium] }
+        premium_until: { type: string, format: date-time, nullable: true }
+        friend_code: { type: string, description: Personal add-friend code (V2) }
+        notification_prefs: { $ref: '#/components/schemas/NotificationPrefs' }
+        created_at: { type: string, format: date-time }
+    UserUpdate:
+      type: object
+      description: Partial update; send only changed fields.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        email: { type: string, format: email }
+        phone_e164: { type: string, nullable: true, pattern: '^\+[1-9][0-9]{6,14}$' }
+        default_currency: { type: string, minLength: 3, maxLength: 3 }
+        time_zone: { type: string }
+        notification_prefs: { $ref: '#/components/schemas/NotificationPrefs' }
+      example: { default_currency: USD, notification_prefs: { comment_added: false } }
+
+    # ---------- balances (shared) ----------
+    BalanceLine:
+      type: object
+      description: Positive amount_minor = the counterparty owes the viewer; negative = the viewer owes.
+      required: [amount_minor, currency]
+      properties:
+        amount_minor: { type: integer, example: 50000 }
+        currency: { type: string, example: INR }
+    ScopedBalance:
+      type: object
+      required: [scope, balances]
+      properties:
+        scope: { type: string, enum: [group, non_group] }
+        group_id: { type: string, format: uuid, nullable: true }
+        group_name: { type: string, nullable: true }
+        balances:
+          type: array
+          items: { $ref: '#/components/schemas/BalanceLine' }
+
+    # ---------- friends ----------
+    Friend:
+      type: object
+      required: [user, balances, breakdown]
+      properties:
+        user: { $ref: '#/components/schemas/UserPublic' }
+        balances:
+          type: array
+          description: Total with this friend per currency (all groups + non-group). Never summed across currencies.
+          items: { $ref: '#/components/schemas/BalanceLine' }
+        breakdown:
+          type: array
+          items: { $ref: '#/components/schemas/ScopedBalance' }
+        settled_up_since: { type: string, format: date-time, nullable: true, description: When every balance last became 0; drives the "settled over a month" collapse }
+      example:
+        user: { id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, name: Ravi, email: ravi@example.com, avatar_url: null, is_registered: true }
+        balances: [ { amount_minor: 150000, currency: INR } ]
+        breakdown:
+          - { scope: non_group, group_id: null, group_name: null, balances: [ { amount_minor: 100000, currency: INR } ] }
+          - { scope: group, group_id: 7a1d2c3b-0000-4000-8000-000000000010, group_name: Flat 4B, balances: [ { amount_minor: 50000, currency: INR } ] }
+        settled_up_since: null
+    FriendList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Friend' }
+    FriendCreate:
+      type: object
+      description: Provide exactly one of email or phone_e164. name is required when the person is not registered.
+      properties:
+        email: { type: string, format: email }
+        phone_e164: { type: string, pattern: '^\+[1-9][0-9]{6,14}$' }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        friend_code: { type: string, description: V2 – add by personal code/QR instead of email/phone }
+      example: { email: new@example.com, name: New Person }
+    FriendCreated:
+      type: object
+      required: [friend, is_new_user]
+      properties:
+        friend: { $ref: '#/components/schemas/Friend' }
+        is_new_user: { type: boolean, description: true when a placeholder user was created and an invite queued }
+
+    # ---------- groups ----------
+    GroupType:
+      type: string
+      enum: [home, trip, couple, other]
+    GroupMember:
+      type: object
+      required: [user, joined_at, balances]
+      properties:
+        user: { $ref: '#/components/schemas/UserPublic' }
+        joined_at: { type: string, format: date-time }
+        left_at: { type: string, format: date-time, nullable: true }
+        balances:
+          type: array
+          items: { $ref: '#/components/schemas/BalanceLine' }
+          description: This member's net in the group (positive = gets back)
+    Group:
+      type: object
+      required: [id, name, group_type, simplify_debts, default_currency, members, version, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        group_type: { $ref: '#/components/schemas/GroupType' }
+        simplify_debts: { type: boolean }
+        default_currency: { type: string }
+        avatar_url: { type: string, nullable: true }
+        trip_start_date: { type: string, format: date, nullable: true }
+        trip_end_date: { type: string, format: date, nullable: true }
+        whiteboard: { type: string, nullable: true }
+        members:
+          type: array
+          items: { $ref: '#/components/schemas/GroupMember' }
+        my_balances:
+          type: array
+          description: The viewer's net in this group per currency
+          items: { $ref: '#/components/schemas/BalanceLine' }
+        version: { type: integer }
+        created_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        deleted_at: { type: string, format: date-time, nullable: true }
+      example:
+        id: 7a1d2c3b-0000-4000-8000-000000000010
+        name: Flat 4B
+        group_type: home
+        simplify_debts: true
+        default_currency: INR
+        avatar_url: null
+        trip_start_date: null
+        trip_end_date: null
+        whiteboard: null
+        members:
+          - { user: { id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001, name: Asha, email: asha@example.com, avatar_url: null, is_registered: true }, joined_at: '2026-11-01T10:00:00Z', left_at: null, balances: [ { amount_minor: 6666, currency: INR } ] }
+          - { user: { id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, name: Ravi, email: ravi@example.com, avatar_url: null, is_registered: true }, joined_at: '2026-11-01T10:00:00Z', left_at: null, balances: [ { amount_minor: -3333, currency: INR } ] }
+          - { user: { id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0003, name: Meera, email: meera@example.com, avatar_url: null, is_registered: true }, joined_at: '2026-11-01T10:00:00Z', left_at: null, balances: [ { amount_minor: -3333, currency: INR } ] }
+        my_balances: [ { amount_minor: 6666, currency: INR } ]
+        version: 1
+        created_by: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001
+        created_at: '2026-11-01T10:00:00Z'
+        deleted_at: null
+    GroupSummary:
+      type: object
+      required: [id, name, group_type, my_balances]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        group_type: { $ref: '#/components/schemas/GroupType' }
+        avatar_url: { type: string, nullable: true }
+        member_count: { type: integer }
+        my_balances:
+          type: array
+          items: { $ref: '#/components/schemas/BalanceLine' }
+        settled_up_since: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time }
+    GroupList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/GroupSummary' }
+        non_group_balances:
+          type: array
+          description: The viewer's total across all non-group expenses
+          items: { $ref: '#/components/schemas/BalanceLine' }
+      example:
+        items:
+          - { id: 7a1d2c3b-0000-4000-8000-000000000010, name: Flat 4B, group_type: home, avatar_url: null, member_count: 3, my_balances: [ { amount_minor: 6666, currency: INR } ], settled_up_since: null, updated_at: '2026-11-05T09:00:00Z' }
+        non_group_balances: [ { amount_minor: 30000, currency: INR } ]
+    NewMember:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        email: { type: string, format: email }
+        phone_e164: { type: string }
+    GroupCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        group_type: { $ref: '#/components/schemas/GroupType' }
+        simplify_debts: { type: boolean, default: true }
+        default_currency: { type: string, description: Defaults to the creator's default currency }
+        trip_start_date: { type: string, format: date }
+        trip_end_date: { type: string, format: date }
+        member_user_ids:
+          type: array
+          maxItems: 200
+          items: { type: string, format: uuid }
+        new_members:
+          type: array
+          maxItems: 200
+          items: { $ref: '#/components/schemas/NewMember' }
+      example:
+        name: Goa Trip
+        group_type: trip
+        trip_start_date: '2026-12-20'
+        trip_end_date: '2026-12-27'
+        member_user_ids: [ 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002 ]
+        new_members: [ { name: Kiran, email: kiran@example.com } ]
+    GroupUpdate:
+      type: object
+      required: [version]
+      properties:
+        version: { type: integer }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        group_type: { $ref: '#/components/schemas/GroupType' }
+        simplify_debts: { type: boolean }
+        default_currency: { type: string }
+        trip_start_date: { type: string, format: date, nullable: true }
+        trip_end_date: { type: string, format: date, nullable: true }
+        whiteboard: { type: string, maxLength: 10000, nullable: true }
+      example: { version: 1, simplify_debts: false }
+    MembersAdd:
+      type: object
+      properties:
+        user_ids:
+          type: array
+          items: { type: string, format: uuid }
+        new_members:
+          type: array
+          items: { $ref: '#/components/schemas/NewMember' }
+      example: { user_ids: [ 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0003 ], new_members: [] }
+    InviteLink:
+      type: object
+      required: [token, url]
+      properties:
+        token: { type: string }
+        url: { type: string, example: 'https://splitapp.example/join/9QX2KD7MZP' }
+    JoinGroupRequest:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string }
+        claim_placeholder_user_id: { type: string, format: uuid, nullable: true, description: Claim an existing placeholder member's history }
+      example: { token: 9QX2KD7MZP, claim_placeholder_user_id: null }
+
+    # ---------- expenses ----------
+    SplitType:
+      type: string
+      enum: [equal, exact, percent, shares, adjustment]
+    PayerInput:
+      type: object
+      required: [user_id, paid_amount_minor]
+      properties:
+        user_id: { type: string, format: uuid }
+        paid_amount_minor: { type: integer, minimum: 1 }
+    SplitEntryInput:
+      type: object
+      required: [user_id]
+      properties:
+        user_id: { type: string, format: uuid }
+        value:
+          type: integer
+          minimum: 0
+          description: >
+            Meaning depends on split.type. equal: omit (or ignored).
+            exact: owed amount in minor units. percent: basis points (3333 = 33.33%).
+            shares: integer share count (0–999). adjustment: extra owed in minor units.
+    SplitInput:
+      type: object
+      required: [type, entries]
+      properties:
+        type: { $ref: '#/components/schemas/SplitType' }
+        entries:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/SplitEntryInput' }
+    RecurrenceInput:
+      type: object
+      required: [interval]
+      properties:
+        interval: { type: string, enum: [weekly, fortnightly, monthly, yearly] }
+        reminder_days_before: { type: integer, minimum: 0, maximum: 7, nullable: true }
+    ExpenseCreate:
+      type: object
+      required: [description, total, expense_date, payers, split]
+      properties:
+        group_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Only for POST /expenses; null = non-group. Ignored on POST /groups/{id}/expenses (path wins).
+        description: { type: string, minLength: 1, maxLength: 200 }
+        total: { $ref: '#/components/schemas/Money' }
+        category_id: { type: integer, default: 1 }
+        expense_date: { type: string, format: date }
+        notes: { type: string, maxLength: 2000, nullable: true }
+        payers:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/PayerInput' }
+        split: { $ref: '#/components/schemas/SplitInput' }
+        recurrence: { $ref: '#/components/schemas/RecurrenceInput' }
+    ExpenseUpdate:
+      type: object
+      required: [version]
+      description: Partial update. If payers or split are sent, both are re-validated against the (new) total.
+      properties:
+        version: { type: integer }
+        description: { type: string, minLength: 1, maxLength: 200 }
+        total: { $ref: '#/components/schemas/Money' }
+        category_id: { type: integer }
+        expense_date: { type: string, format: date }
+        notes: { type: string, maxLength: 2000, nullable: true }
+        payers:
+          type: array
+          items: { $ref: '#/components/schemas/PayerInput' }
+        split: { $ref: '#/components/schemas/SplitInput' }
+      example: { version: 1, total: { amount_minor: 12000, currency: INR } }
+    ExpensePayer:
+      type: object
+      required: [user_id, paid_amount_minor]
+      properties:
+        user_id: { type: string, format: uuid }
+        paid_amount_minor: { type: integer }
+    ExpenseSplit:
+      type: object
+      required: [user_id, owed_amount_minor]
+      properties:
+        user_id: { type: string, format: uuid }
+        owed_amount_minor: { type: integer, description: Computed by the server per docs/business_rules.md §2 }
+        input_value: { type: integer, nullable: true, description: The raw entry value as submitted }
+    Expense:
+      type: object
+      required: [id, description, total, category_id, expense_date, split_type, payers, splits, created_by, created_at, version]
+      properties:
+        id: { type: string, format: uuid }
+        group_id: { type: string, format: uuid, nullable: true }
+        description: { type: string }
+        total: { $ref: '#/components/schemas/Money' }
+        category_id: { type: integer }
+        expense_date: { type: string, format: date }
+        notes: { type: string, nullable: true }
+        split_type: { $ref: '#/components/schemas/SplitType' }
+        payers:
+          type: array
+          items: { $ref: '#/components/schemas/ExpensePayer' }
+        splits:
+          type: array
+          items: { $ref: '#/components/schemas/ExpenseSplit' }
+        my_net:
+          allOf: [ { $ref: '#/components/schemas/Money' } ]
+          description: The viewer's paid − owed on this expense (positive = gets back)
+        receipt_url: { type: string, nullable: true }
+        recurring_rule_id: { type: string, format: uuid, nullable: true }
+        comment_count: { type: integer }
+        created_by: { type: string, format: uuid }
+        updated_by: { type: string, format: uuid, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        deleted_at: { type: string, format: date-time, nullable: true }
+        deleted_by: { type: string, format: uuid, nullable: true }
+        version: { type: integer }
+      example:
+        id: 5e0c8a1f-0000-4000-8000-000000000100
+        group_id: 7a1d2c3b-0000-4000-8000-000000000010
+        description: Groceries
+        total: { amount_minor: 10000, currency: INR }
+        category_id: 12
+        expense_date: '2026-11-05'
+        notes: null
+        split_type: equal
+        payers: [ { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001, paid_amount_minor: 10000 } ]
+        splits:
+          - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001, owed_amount_minor: 3334, input_value: null }
+          - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, owed_amount_minor: 3333, input_value: null }
+          - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0003, owed_amount_minor: 3333, input_value: null }
+        my_net: { amount_minor: 6666, currency: INR }
+        receipt_url: null
+        recurring_rule_id: null
+        comment_count: 0
+        created_by: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001
+        updated_by: null
+        created_at: '2026-11-05T14:10:00Z'
+        updated_at: '2026-11-05T14:10:00Z'
+        deleted_at: null
+        deleted_by: null
+        version: 1
+    ExpensePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Expense' }
+        next_cursor: { type: string, nullable: true }
+
+    # ---------- comments ----------
+    Comment:
+      type: object
+      required: [id, kind, body, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [user, system] }
+        user: { allOf: [ { $ref: '#/components/schemas/UserPublic' } ], nullable: true }
+        body: { type: string }
+        created_at: { type: string, format: date-time }
+      example: { id: c0000000-0000-4000-8000-000000000001, kind: user, user: { id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, name: Ravi, email: ravi@example.com, avatar_url: null, is_registered: true }, body: paid in cash, created_at: '2026-11-05T15:00:00Z' }
+    CommentCreate:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 1000 }
+      example: { body: paid in cash }
+    CommentPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Comment' }
+        next_cursor: { type: string, nullable: true }
+
+    # ---------- balances ----------
+    Transfer:
+      type: object
+      required: [from_user_id, to_user_id, amount_minor, currency]
+      properties:
+        from_user_id: { type: string, format: uuid }
+        to_user_id: { type: string, format: uuid }
+        amount_minor: { type: integer, minimum: 1 }
+        currency: { type: string }
+    GroupBalances:
+      type: object
+      required: [group_id, simplified, members, transfers]
+      properties:
+        group_id: { type: string, format: uuid }
+        simplified: { type: boolean, description: true when transfers come from debt simplification (business_rules §5); false = pairwise (§4.2) }
+        members:
+          type: array
+          items:
+            type: object
+            required: [user_id, balances]
+            properties:
+              user_id: { type: string, format: uuid }
+              balances:
+                type: array
+                items: { $ref: '#/components/schemas/BalanceLine' }
+        transfers:
+          type: array
+          description: Ordered list; order is part of the contract (business_rules vectors 19–24)
+          items: { $ref: '#/components/schemas/Transfer' }
+      example:
+        group_id: 7a1d2c3b-0000-4000-8000-000000000010
+        simplified: true
+        members:
+          - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001, balances: [ { amount_minor: 6666, currency: INR } ] }
+          - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, balances: [ { amount_minor: -3333, currency: INR } ] }
+          - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0003, balances: [ { amount_minor: -3333, currency: INR } ] }
+        transfers:
+          - { from_user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, to_user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001, amount_minor: 3333, currency: INR }
+          - { from_user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0003, to_user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001, amount_minor: 3333, currency: INR }
+    OverallBalances:
+      type: object
+      required: [you_are_owed, you_owe, by_friend]
+      properties:
+        you_are_owed:
+          type: array
+          description: Per currency, sum of positive friend balances
+          items: { $ref: '#/components/schemas/BalanceLine' }
+        you_owe:
+          type: array
+          description: Per currency, sum of negative friend balances, reported as positive amounts
+          items: { $ref: '#/components/schemas/BalanceLine' }
+        by_friend:
+          type: array
+          items:
+            type: object
+            required: [user_id, balances]
+            properties:
+              user_id: { type: string, format: uuid }
+              balances:
+                type: array
+                items: { $ref: '#/components/schemas/BalanceLine' }
+      example:
+        you_are_owed: [ { amount_minor: 50000, currency: INR } ]
+        you_owe: [ { amount_minor: 12000, currency: INR } ]
+        by_friend:
+          - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, balances: [ { amount_minor: 50000, currency: INR } ] }
+          - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0003, balances: [ { amount_minor: -12000, currency: INR } ] }
+
+    # ---------- settlements ----------
+    SettlementCreate:
+      type: object
+      required: [from_user_id, to_user_id, amount]
+      properties:
+        group_id: { type: string, format: uuid, nullable: true, description: null = non-group }
+        from_user_id: { type: string, format: uuid, description: Who paid }
+        to_user_id: { type: string, format: uuid, description: Who received }
+        amount: { $ref: '#/components/schemas/Money' }
+        settled_on: { type: string, format: date, description: Defaults to today in the creator's time zone }
+        note: { type: string, maxLength: 500, nullable: true }
+      example:
+        group_id: 7a1d2c3b-0000-4000-8000-000000000010
+        from_user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0003
+        to_user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001
+        amount: { amount_minor: 2000, currency: INR }
+        settled_on: '2026-11-05'
+        note: null
+    SettleAllRequest:
+      type: object
+      required: [friend_user_id]
+      description: Create one settlement per (scope, currency) with a non-zero edge between the caller and the friend (business_rules §6).
+      properties:
+        friend_user_id: { type: string, format: uuid }
+        currency: { type: string, nullable: true, description: Limit to one currency; null = all }
+    SettlementUpdate:
+      type: object
+      required: [version]
+      properties:
+        version: { type: integer }
+        amount: { $ref: '#/components/schemas/Money' }
+        settled_on: { type: string, format: date }
+        note: { type: string, maxLength: 500, nullable: true }
+      example: { version: 1, amount: { amount_minor: 2500, currency: INR } }
+    Settlement:
+      type: object
+      required: [id, from_user_id, to_user_id, amount, settled_on, created_by, created_at, version]
+      properties:
+        id: { type: string, format: uuid }
+        group_id: { type: string, format: uuid, nullable: true }
+        from_user_id: { type: string, format: uuid }
+        to_user_id: { type: string, format: uuid }
+        amount: { $ref: '#/components/schemas/Money' }
+        settled_on: { type: string, format: date }
+        note: { type: string, nullable: true }
+        batch_id: { type: string, format: uuid, nullable: true }
+        created_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        deleted_at: { type: string, format: date-time, nullable: true }
+        version: { type: integer }
+      example:
+        id: 9d000000-0000-4000-8000-000000000001
+        group_id: 7a1d2c3b-0000-4000-8000-000000000010
+        from_user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0003
+        to_user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001
+        amount: { amount_minor: 2000, currency: INR }
+        settled_on: '2026-11-05'
+        note: null
+        batch_id: null
+        created_by: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0003
+        created_at: '2026-11-05T16:00:00Z'
+        deleted_at: null
+        version: 1
+    SettlementPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Settlement' }
+        next_cursor: { type: string, nullable: true }
+
+    # ---------- activity ----------
+    ActivityItem:
+      type: object
+      required: [id, action, entity_type, entity_id, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        action:
+          type: string
+          enum: [expense.created, expense.updated, expense.deleted, expense.restored, settlement.created, settlement.updated, settlement.deleted, settlement.restored, comment.created, group.created, group.updated, group.deleted, group.restored, group.member_added, group.member_removed, group.member_joined, friend.added, friend.removed, group.currency_converted]
+        actor: { allOf: [ { $ref: '#/components/schemas/UserPublic' } ], nullable: true, description: null = system (recurring job) }
+        entity_type: { type: string, enum: [expense, settlement, group, friendship, comment] }
+        entity_id: { type: string, format: uuid }
+        group_id: { type: string, format: uuid, nullable: true }
+        summary: { type: object, additionalProperties: true, description: Snapshot for rendering, e.g. description and total }
+        my_effect:
+          type: array
+          description: Change in the viewer's balance caused by this event (positive = gets back)
+          items: { $ref: '#/components/schemas/BalanceLine' }
+        is_unread: { type: boolean }
+        created_at: { type: string, format: date-time }
+    ActivityPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityItem' }
+        next_cursor: { type: string, nullable: true }
+      example:
+        items:
+          - id: a0000000-0000-4000-8000-000000000001
+            action: expense.created
+            actor: { id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, name: Ravi, email: ravi@example.com, avatar_url: null, is_registered: true }
+            entity_type: expense
+            entity_id: 5e0c8a1f-0000-4000-8000-000000000101
+            group_id: 7a1d2c3b-0000-4000-8000-000000000010
+            summary: { description: Dinner, total: { amount_minor: 9000, currency: INR } }
+            my_effect: [ { amount_minor: -3000, currency: INR } ]
+            is_unread: true
+            created_at: '2026-11-05T18:00:00Z'
+        next_cursor: eyJpZCI6ImEwMDAwMDAwIn0
+
+    # ---------- recurring ----------
+    RecurringRule:
+      type: object
+      required: [id, template_expense_id, interval, anchor_date, next_occurrence_date, active]
+      properties:
+        id: { type: string, format: uuid }
+        template_expense_id: { type: string, format: uuid }
+        group_id: { type: string, format: uuid, nullable: true }
+        description: { type: string }
+        total: { $ref: '#/components/schemas/Money' }
+        interval: { type: string, enum: [weekly, fortnightly, monthly, yearly] }
+        anchor_date: { type: string, format: date }
+        next_occurrence_date: { type: string, format: date }
+        reminder_days_before: { type: integer, nullable: true }
+        active: { type: boolean }
+      example:
+        id: 0f000000-0000-4000-8000-000000000001
+        template_expense_id: 5e0c8a1f-0000-4000-8000-000000000200
+        group_id: 7a1d2c3b-0000-4000-8000-000000000010
+        description: Rent
+        total: { amount_minor: 3000000, currency: INR }
+        interval: monthly
+        anchor_date: '2026-01-31'
+        next_occurrence_date: '2026-02-28'
+        reminder_days_before: 2
+        active: true
+    RecurringCreate:
+      type: object
+      required: [template_expense_id, interval]
+      properties:
+        template_expense_id: { type: string, format: uuid, description: An existing expense whose payers/split become the template; it is the first occurrence }
+        interval: { type: string, enum: [weekly, fortnightly, monthly, yearly] }
+        reminder_days_before: { type: integer, minimum: 0, maximum: 7, nullable: true }
+      example: { template_expense_id: 5e0c8a1f-0000-4000-8000-000000000200, interval: monthly, reminder_days_before: 2 }
+    RecurringUpdate:
+      type: object
+      properties:
+        interval: { type: string, enum: [weekly, fortnightly, monthly, yearly] }
+        reminder_days_before: { type: integer, minimum: 0, maximum: 7, nullable: true }
+        active: { type: boolean }
+      example: { active: false }
+    RecurringList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/RecurringRule' }
+
+    # ---------- exports ----------
+    ExportCreate:
+      type: object
+      required: [scope]
+      properties:
+        scope: { type: string, enum: [group, friend] }
+        group_id: { type: string, format: uuid, nullable: true }
+        friend_user_id: { type: string, format: uuid, nullable: true }
+        format: { type: string, enum: [csv], default: csv }
+      example: { scope: group, group_id: 7a1d2c3b-0000-4000-8000-000000000010, format: csv }
+    Export:
+      type: object
+      required: [id, status, scope, format, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [pending, ready, failed] }
+        scope: { type: string, enum: [group, friend] }
+        format: { type: string, enum: [csv] }
+        download_url: { type: string, nullable: true, description: Signed URL, valid 15 minutes, present when ready }
+        file_name: { type: string, nullable: true, example: flat-4b-2026-11-05.csv }
+        expires_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+      example: { id: e0000000-0000-4000-8000-000000000001, status: pending, scope: group, format: csv, download_url: null, file_name: null, expires_at: null, created_at: '2026-11-05T17:00:00Z' }
+
+    # ---------- reference data ----------
+    Category:
+      type: object
+      required: [id, slug, name, icon]
+      properties:
+        id: { type: integer }
+        parent_id: { type: integer, nullable: true }
+        slug: { type: string }
+        name: { type: string }
+        icon: { type: string }
+        children:
+          type: array
+          items: { $ref: '#/components/schemas/Category' }
+    Currency:
+      type: object
+      required: [code, name, symbol, exponent]
+      properties:
+        code: { type: string, example: INR }
+        name: { type: string, example: Indian Rupee }
+        symbol: { type: string, example: '₹' }
+        exponent: { type: integer, example: 2 }
+
+    # ---------- reminders ----------
+    ReminderCreate:
+      type: object
+      required: [to_user_id]
+      properties:
+        to_user_id: { type: string, format: uuid }
+        group_id: { type: string, format: uuid, nullable: true }
+        message: { type: string, maxLength: 1000, nullable: true }
+      example: { to_user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, group_id: null, message: null }
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [system]
+      summary: Liveness check
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: Register a new user
+      description: Creates a user (or claims a placeholder with the same email) and returns tokens.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        "409":
+          description: Email already exists
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: EMAIL_TAKEN, message: An account with this email already exists }
+        "422": { $ref: '#/components/responses/Unprocessable' }
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Log in with email and password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        "401":
+          description: Wrong email or password (deliberately not distinguished)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: INVALID_CREDENTIALS, message: Email or password is incorrect }
+        "429": { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: Exchange a refresh token for a new token pair (rotation)
+      description: The presented refresh token is revoked and a new one issued. Re-use of a revoked token revokes all of that user's tokens.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        "200":
+          description: New tokens
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+              example: { access_token: eyJhbGciOiJIUzI1NiJ9.e30.sig2, refresh_token: rt_1a2b3c4d5e6f, token_type: bearer, expires_in: 900 }
+        "401":
+          description: Refresh token invalid, expired or revoked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: TOKEN_INVALID, message: Session expired, please log in again }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Revoke a refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        "204": { description: Revoked }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/password-reset:
+    post:
+      tags: [auth]
+      summary: Request a password reset email
+      description: Always 202, whether or not the email exists. Token valid 60 minutes.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordResetRequest' }
+      responses:
+        "202": { description: Accepted }
+        "429": { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/password-reset/confirm:
+    post:
+      tags: [auth]
+      summary: Set a new password using a reset token
+      description: Revokes all existing refresh tokens for the user and returns a fresh session.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordResetConfirm' }
+      responses:
+        "200":
+          description: Password changed, logged in
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        "410": { $ref: '#/components/responses/Gone' }
+        "422": { $ref: '#/components/responses/Unprocessable' }
+
+  /users/me:
+    get:
+      tags: [users]
+      summary: Current user profile
+      responses:
+        "200":
+          description: Profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserMe' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [users]
+      summary: Update the current user's profile and preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserUpdate' }
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserMe' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "409":
+          description: Email or phone already used by another account
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: EMAIL_TAKEN, message: This email is used by another account }
+        "422": { $ref: '#/components/responses/Unprocessable' }
+
+  /friends:
+    get:
+      tags: [friends]
+      summary: List friends with balances
+      parameters:
+        - name: filter
+          in: query
+          required: false
+          schema: { type: string, enum: [all, outstanding, owes_me, i_owe], default: all }
+      responses:
+        "200":
+          description: Friends
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FriendList' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [friends]
+      summary: Add a friend by email, phone or personal code
+      description: Creates a placeholder user and queues an invite if the person is not registered. Idempotent if already friends (returns 200).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FriendCreate' }
+      responses:
+        "201":
+          description: Friend added
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FriendCreated' }
+              example:
+                friend: { user: { id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0009, name: New Person, email: new@example.com, avatar_url: null, is_registered: false }, balances: [], breakdown: [], settled_up_since: null }
+                is_new_user: true
+        "200":
+          description: Already friends
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FriendCreated' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "410": { $ref: '#/components/responses/Gone' }
+        "422": { $ref: '#/components/responses/Unprocessable' }
+
+  /friends/{user_id}:
+    parameters:
+      - $ref: '#/components/parameters/UserIdPath'
+    get:
+      tags: [friends]
+      summary: One friend with balance breakdown
+      responses:
+        "200":
+          description: Friend
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Friend' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [friends]
+      summary: Remove a friend
+      description: Fails while the two users share any non-deleted group. Soft-deletes non-group expenses involving only the two users.
+      responses:
+        "204": { description: Removed }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409":
+          description: Shared groups exist
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: SHARED_GROUPS_EXIST, message: Remove each other from shared groups first, details: { group_ids: [ 7a1d2c3b-0000-4000-8000-000000000010 ] } }
+
+  /groups:
+    get:
+      tags: [groups]
+      summary: List the current user's groups with their balance in each
+      responses:
+        "200":
+          description: Groups
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GroupList' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [groups]
+      summary: Create a group
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GroupCreate' }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "422": { $ref: '#/components/responses/Unprocessable' }
+
+  /groups/join:
+    post:
+      tags: [groups]
+      summary: Join a group with an invite token (V2)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/JoinGroupRequest' }
+      responses:
+        "200":
+          description: Joined
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        "410": { $ref: '#/components/responses/Gone' }
+
+  /groups/{id}:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    get:
+      tags: [groups]
+      summary: Group detail with members and balances
+      responses:
+        "200":
+          description: Group
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [groups]
+      summary: Update group settings (any member)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GroupUpdate' }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { $ref: '#/components/responses/Conflict' }
+        "422": { $ref: '#/components/responses/Unprocessable' }
+    delete:
+      tags: [groups]
+      summary: Delete a group for all members (soft delete)
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { $ref: '#/components/responses/Conflict' }
+
+  /groups/{id}/restore:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    post:
+      tags: [groups]
+      summary: Restore a deleted group (V2)
+      responses:
+        "200":
+          description: Restored
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        "409":
+          description: Group is not deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: NOT_DELETED, message: Group is not deleted }
+
+  /groups/{id}/members:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    post:
+      tags: [groups]
+      summary: Add members (existing users and/or new placeholder people)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MembersAdd' }
+      responses:
+        "200":
+          description: Updated group
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "422": { $ref: '#/components/responses/Unprocessable' }
+
+  /groups/{id}/members/{user_id}:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+      - $ref: '#/components/parameters/UserIdPath'
+    delete:
+      tags: [groups]
+      summary: Remove a member, or leave the group with user_id = me
+      description: Fails with 409 OUTSTANDING_BALANCE if the member's balance in this group is non-zero in any currency.
+      responses:
+        "204": { description: Removed / left }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409":
+          description: Member has a non-zero balance
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: OUTSTANDING_BALANCE, message: Settle all debts before leaving, details: { balances: [ { amount_minor: -1, currency: INR } ] } }
+
+  /groups/{id}/invite-link:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    get:
+      tags: [groups]
+      summary: Get the current invite link (creates one if none) (V2)
+      responses:
+        "200":
+          description: Link
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InviteLink' }
+    post:
+      tags: [groups]
+      summary: Reset the invite link; the old token stops working (V2)
+      responses:
+        "201":
+          description: New link
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InviteLink' }
+
+  /groups/{id}/expenses:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    get:
+      tags: [expenses]
+      summary: List a group's expenses, newest expense_date first
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: include_deleted
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Page of expenses
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExpensePage' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [expenses]
+      summary: Add an expense to a group
+      description: >
+        Validates payers and split per docs/business_rules.md §2–3 and stores computed
+        owed amounts. Split types: equal, exact, percent (basis points), shares, adjustment.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExpenseCreate' }
+            examples:
+              equal:
+                summary: Equal split, 100.00 INR among 3
+                value:
+                  description: Groceries
+                  total: { amount_minor: 10000, currency: INR }
+                  category_id: 12
+                  expense_date: '2026-11-05'
+                  payers: [ { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001, paid_amount_minor: 10000 } ]
+                  split:
+                    type: equal
+                    entries:
+                      - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001 }
+                      - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002 }
+                      - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0003 }
+              percent:
+                summary: Percent split, 10.00 INR at 33.33/33.33/33.34
+                value:
+                  description: Internet
+                  total: { amount_minor: 1000, currency: INR }
+                  expense_date: '2026-11-05'
+                  payers: [ { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001, paid_amount_minor: 1000 } ]
+                  split:
+                    type: percent
+                    entries:
+                      - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001, value: 3333 }
+                      - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, value: 3333 }
+                      - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0003, value: 3334 }
+              multiple_payers_shares:
+                summary: Two payers, shares 1/2/3
+                value:
+                  description: Cottage 3 nights
+                  total: { amount_minor: 60000, currency: INR }
+                  expense_date: '2026-11-05'
+                  payers:
+                    - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001, paid_amount_minor: 40000 }
+                    - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, paid_amount_minor: 20000 }
+                  split:
+                    type: shares
+                    entries:
+                      - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001, value: 1 }
+                      - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, value: 2 }
+                      - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0003, value: 3 }
+              adjustment_recurring:
+                summary: Adjustment split, repeating monthly
+                value:
+                  description: Rent
+                  total: { amount_minor: 3000000, currency: INR }
+                  expense_date: '2026-01-31'
+                  payers: [ { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001, paid_amount_minor: 3000000 } ]
+                  split:
+                    type: adjustment
+                    entries:
+                      - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001, value: 300000 }
+                      - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, value: 0 }
+                      - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0003, value: 0 }
+                  recurrence: { interval: monthly, reminder_days_before: 2 }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        "402": { $ref: '#/components/responses/PaymentRequired' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "422": { $ref: '#/components/responses/Unprocessable' }
+
+  /expenses:
+    get:
+      tags: [expenses]
+      summary: List or search the current user's expenses across all groups (search is premium, V2)
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: q
+          in: query
+          required: false
+          description: Case-insensitive substring on description and notes, or an amount like 450.00 (premium)
+          schema: { type: string, minLength: 2 }
+        - name: friend_user_id
+          in: query
+          required: false
+          description: Only expenses shared with this friend (any group or non-group)
+          schema: { type: string, format: uuid }
+        - name: non_group
+          in: query
+          required: false
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Page of expenses
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExpensePage' }
+        "402": { $ref: '#/components/responses/PaymentRequired' }
+    post:
+      tags: [expenses]
+      summary: Add a non-group expense (group_id null) or a group expense by body
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExpenseCreate' }
+            example:
+              group_id: null
+              description: Cab
+              total: { amount_minor: 30000, currency: INR }
+              expense_date: '2026-11-05'
+              payers: [ { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001, paid_amount_minor: 30000 } ]
+              split:
+                type: exact
+                entries:
+                  - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001, value: 0 }
+                  - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, value: 30000 }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        "422": { $ref: '#/components/responses/Unprocessable' }
+
+  /expenses/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ExpenseId'
+    get:
+      tags: [expenses]
+      summary: Expense detail (participants and group members only)
+      responses:
+        "200":
+          description: Expense
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [expenses]
+      summary: Edit an expense
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExpenseUpdate' }
+      responses:
+        "200":
+          description: Updated (version incremented)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409":
+          description: VERSION_CONFLICT, EXPENSE_HAS_DEPARTED_MEMBER or ALREADY_DELETED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: EXPENSE_HAS_DEPARTED_MEMBER, message: This expense involves someone who left the group and can no longer be edited }
+        "422": { $ref: '#/components/responses/Unprocessable' }
+    delete:
+      tags: [expenses]
+      summary: Soft-delete an expense for everyone
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409":
+          description: Already deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: ALREADY_DELETED, message: The expense has already been deleted }
+
+  /expenses/{id}/restore:
+    parameters:
+      - $ref: '#/components/parameters/ExpenseId'
+    post:
+      tags: [expenses]
+      summary: Restore a deleted expense
+      responses:
+        "200":
+          description: Restored
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        "409":
+          description: Not deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: NOT_DELETED, message: The expense is not deleted }
+
+  /expenses/{id}/receipt:
+    parameters:
+      - $ref: '#/components/parameters/ExpenseId'
+    post:
+      tags: [expenses]
+      summary: Upload or replace the receipt image (JPEG/PNG, max 10 MB) (V2)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "201":
+          description: Stored; returns the expense with receipt_url set
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        "402": { $ref: '#/components/responses/PaymentRequired' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "413":
+          description: File larger than 10 MB
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: VALIDATION_ERROR, message: File too large, details: { max_bytes: 10485760 } }
+        "422": { $ref: '#/components/responses/Unprocessable' }
+    delete:
+      tags: [expenses]
+      summary: Remove the receipt image (V2)
+      responses:
+        "204": { description: Removed }
+
+  /expenses/{id}/comments:
+    parameters:
+      - $ref: '#/components/parameters/ExpenseId'
+    get:
+      tags: [comments]
+      summary: List comments, oldest first
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        "200":
+          description: Comments
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommentPage' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [comments]
+      summary: Add a comment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CommentCreate' }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Comment' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409":
+          description: Expense is deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: ALREADY_DELETED, message: Restore the expense to add a comment }
+        "422": { $ref: '#/components/responses/Unprocessable' }
+
+  /groups/{id}/balances:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    get:
+      tags: [balances]
+      summary: Member nets and suggested transfers for a group
+      description: Transfers are simplified (business_rules §5) when the group's simplify_debts is true, otherwise pairwise (§4.2). Per currency.
+      responses:
+        "200":
+          description: Balances
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GroupBalances' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /balances:
+    get:
+      tags: [balances]
+      summary: Overall balances for the current user (all friends, all scopes)
+      responses:
+        "200":
+          description: Overall balances
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OverallBalances' }
+
+  /settlements:
+    get:
+      tags: [settlements]
+      summary: List settlements involving the current user
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: group_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - name: friend_user_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Settlements
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SettlementPage' }
+    post:
+      tags: [settlements]
+      summary: Record a payment (full, partial or over)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SettlementCreate' }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Settlement' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "422":
+          description: AMOUNT_OUT_OF_RANGE, SAME_PARTY, PARTICIPANT_NOT_MEMBER or CURRENCY_UNKNOWN
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: SAME_PARTY, message: Payer and receiver must be different people }
+
+  /settlements/settle-all:
+    post:
+      tags: [settlements]
+      summary: Settle every balance with one friend (one settlement per scope and currency)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SettleAllRequest' }
+            example: { friend_user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, currency: null }
+      responses:
+        "201":
+          description: Settlements created (empty list if already settled)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [batch_id, items]
+                properties:
+                  batch_id: { type: string, format: uuid }
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Settlement' }
+
+  /settlements/{id}:
+    parameters:
+      - $ref: '#/components/parameters/SettlementId'
+    get:
+      tags: [settlements]
+      summary: Settlement detail
+      responses:
+        "200":
+          description: Settlement
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Settlement' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [settlements]
+      summary: Edit a settlement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SettlementUpdate' }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Settlement' }
+        "409": { $ref: '#/components/responses/Conflict' }
+        "422": { $ref: '#/components/responses/Unprocessable' }
+    delete:
+      tags: [settlements]
+      summary: Soft-delete a settlement
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Settlement' }
+        "409": { $ref: '#/components/responses/Conflict' }
+
+  /settlements/{id}/restore:
+    parameters:
+      - $ref: '#/components/parameters/SettlementId'
+    post:
+      tags: [settlements]
+      summary: Restore a deleted settlement
+      responses:
+        "200":
+          description: Restored
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Settlement' }
+        "409": { $ref: '#/components/responses/Conflict' }
+
+  /activity:
+    get:
+      tags: [activity]
+      summary: Activity feed for the current user, newest first (cursor paginated)
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: group_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Page of activity
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActivityPage' }
+
+  /activity/read:
+    post:
+      tags: [activity]
+      summary: Mark all activity up to now as read
+      responses:
+        "204": { description: Marked }
+
+  /recurring-expenses:
+    get:
+      tags: [recurring]
+      summary: List recurring rules visible to the user (V2)
+      parameters:
+        - name: group_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Rules
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecurringList' }
+    post:
+      tags: [recurring]
+      summary: Make an existing expense recurring (V2)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecurringCreate' }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecurringRule' }
+        "409":
+          description: The expense already has a rule
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        "422": { $ref: '#/components/responses/Unprocessable' }
+
+  /recurring-expenses/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [recurring]
+      summary: Change interval/reminder or stop a rule (active=false) (V2)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecurringUpdate' }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecurringRule' }
+    delete:
+      tags: [recurring]
+      summary: Delete a rule; past occurrences are kept (V2)
+      responses:
+        "204": { description: Deleted }
+
+  /exports:
+    post:
+      tags: [exports]
+      summary: Start a CSV export of a group or friend (premium, V2)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExportCreate' }
+      responses:
+        "202":
+          description: Export job accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Export' }
+        "402": { $ref: '#/components/responses/PaymentRequired' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  /exports/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [exports]
+      summary: Poll an export job
+      responses:
+        "200":
+          description: Export status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Export' }
+              example: { id: e0000000-0000-4000-8000-000000000001, status: ready, scope: group, format: csv, download_url: 'https://storage.example/exports/e000.csv?sig=abc', file_name: flat-4b-2026-11-05.csv, expires_at: '2026-11-05T17:15:00Z', created_at: '2026-11-05T17:00:00Z' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /reminders:
+    post:
+      tags: [reminders]
+      summary: Email a settle-up reminder to someone who owes you (V2)
+      description: Rate limit 1 per (sender, recipient) per 60 seconds.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReminderCreate' }
+      responses:
+        "202": { description: Queued }
+        "422": { $ref: '#/components/responses/Unprocessable' }
+        "429": { $ref: '#/components/responses/TooManyRequests' }
+
+  /categories:
+    get:
+      tags: [reference]
+      summary: Category tree (seeded, cacheable for 24 h)
+      security: []
+      responses:
+        "200":
+          description: Top-level categories with children
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Category' }
+              example:
+                - { id: 30, parent_id: null, slug: transport, name: Transport, icon: transport, children: [ { id: 36, parent_id: 30, slug: transport.taxi, name: Taxi, icon: taxi, children: [] } ] }
+
+  /currencies:
+    get:
+      tags: [reference]
+      summary: Supported currencies (cacheable for 24 h)
+      security: []
+      responses:
+        "200":
+          description: Currencies
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Currency' }
+              example:
+                - { code: INR, name: Indian Rupee, symbol: '₹', exponent: 2 }
+                - { code: USD, name: US Dollar, symbol: '$', exponent: 2 }
+                - { code: JPY, name: Japanese Yen, symbol: '¥', exponent: 0 }
