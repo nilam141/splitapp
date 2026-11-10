@@ -1,18 +1,23 @@
 openapi: 3.0.3
 info:
   title: SplitApp API
-  version: 0.1.1
+  version: 0.2.0
   description: >
     Original API design for our own backend (FastAPI). Observed behavior of any
     other app is reference only. This file is the single source of truth for the
     backend and mobile agents. Do not change it without logging in docs/progress.md.
 
 
+    Changes in 0.2.0 (owner-approved 2026-11-09): `operationId` on every operation; new `GET /groups/{id}/timeline`; new required `unread_count` on `ActivityPage`; `INTERNAL_ERROR` added to the `Error.code` values and the HTTP status to `code` mapping documented; refresh-token revocation by logout is not treated as reuse; login rate limit set to 5 failed attempts per email per 15 minutes. `GET /currencies` is still a bare array.
+
+
     Conventions (REA, v0.1.0):
     - All money is integer minor units in `amount_minor` (or a field ending in `_minor`) next to an ISO 4217 `currency`. Never a float or a decimal string.
     - All ids are UUID strings. Timestamps are RFC 3339 UTC. Calendar dates (`expense_date`, `settled_on`) are `YYYY-MM-DD` in the user's local date.
-    - Lists that can grow without bound (expenses, comments, settlements, activity) use cursor pagination: `?limit=` (1–100, default 50) and `?cursor=` (opaque). Responses carry `next_cursor` (null at the end). Expense lists are ordered by `expense_date` desc, then `created_at` desc, then `id` desc. Bounded collections (friends, groups, recurring rules, categories, currencies) are returned whole in one response, with no cursor.
+    - Lists that can grow without bound (expenses, comments, settlements, activity) use cursor pagination: `?limit=` (1–100, default 50) and `?cursor=` (opaque). Responses carry `next_cursor` (null at the end). Expense lists are ordered by `expense_date` desc, then `created_at` desc, then `id` desc. The group timeline uses the same rule with `settled_on` standing in for `expense_date` on settlements. Bounded collections (friends, groups, recurring rules, categories, currencies) are returned whole in one response, with no cursor.
     - Errors always use the `Error` schema. `code` values are listed on that schema; business-rule codes match docs/business_rules.md.
+    - HTTP status to `code` for errors that are not business-rule errors: 401 `TOKEN_EXPIRED` or `TOKEN_INVALID`; 403 `FORBIDDEN`; 404 `NOT_FOUND`; 405 `NOT_IMPLEMENTED` (method not supported on a known path); 429 `RATE_LIMITED`; 501 `NOT_IMPLEMENTED` (a documented endpoint or field whose slice has not shipped); any other 4xx the framework raises (400, 413, 415) `VALIDATION_ERROR`; any unhandled server failure 500 `INTERNAL_ERROR` (message is generic, details are logged server-side only). 500 never uses `NOT_IMPLEMENTED`.
+    - Every operation has a stable, unique camelCase `operationId`. Generated clients derive their function and hook names from it, so an operationId is never renamed without a contract version bump.
     - Every operation that needs a bearer token can also return 401 (`TOKEN_EXPIRED` or `TOKEN_INVALID`) and 5xx. This is not repeated on each operation.
     - The following creating endpoints accept an optional `Idempotency-Key` header (UUID): POST /friends, POST /groups, POST /groups/{id}/expenses, POST /expenses, POST /settlements. A repeat with the same key and user returns the original response (same status and body) for 24 hours. Other endpoints ignore the header.
     - Updates of expenses, settlements and groups require `version` (optimistic locking). A stale version returns 409 VERSION_CONFLICT.
@@ -26,19 +31,33 @@ servers:
 
 tags:
   - name: system
+    description: Liveness and other operational endpoints.
   - name: auth
+    description: Registration, login, token refresh, logout and password reset.
   - name: users
+    description: The current user's profile and preferences.
   - name: friends
+    description: Friend list, adding and removing friends, per-friend balances.
   - name: groups
+    description: Groups, members, invite links and the group timeline.
   - name: expenses
+    description: Expenses, receipts and expense lists.
   - name: comments
+    description: Comments on expenses.
   - name: balances
+    description: Net balances and suggested transfers.
   - name: settlements
+    description: Recorded payments between two people.
   - name: activity
+    description: The activity feed and its read marker.
   - name: recurring
+    description: Recurring expense rules.
   - name: exports
+    description: CSV export jobs.
   - name: reference
+    description: Seeded reference data (categories, currencies).
   - name: reminders
+    description: Settle-up reminders.
 
 components:
   securitySchemes:
@@ -167,8 +186,10 @@ components:
             SPLIT_PERCENT_MISMATCH, SPLIT_NO_SHARES, SPLIT_ADJUSTMENT_EXCEEDS_TOTAL, PAYER_SUM_MISMATCH,
             DUPLICATE_PAYER, DUPLICATE_PARTICIPANT, PARTICIPANT_NOT_MEMBER, CURRENT_USER_NOT_INVOLVED,
             EXPENSE_HAS_DEPARTED_MEMBER, ALREADY_DELETED, NOT_DELETED, OUTSTANDING_BALANCE, SHARED_GROUPS_EXIST,
-            CANNOT_FRIEND_SELF, SAME_PARTY, INVALID_DATE_RANGE, GROUP_TOO_LARGE, FX_UNAVAILABLE, NOT_IMPLEMENTED
-        message: { type: string, description: Human-readable, English, safe to show }
+            CANNOT_FRIEND_SELF, SAME_PARTY, INVALID_DATE_RANGE, GROUP_TOO_LARGE, FX_UNAVAILABLE, NOT_IMPLEMENTED,
+            INTERNAL_ERROR.
+            NOT_IMPLEMENTED is returned for HTTP 405 and 501; INTERNAL_ERROR for HTTP 500 only.
+        message: { type: string, description: "Human-readable, English, safe to show" }
         details:
           type: object
           additionalProperties: true
@@ -693,6 +714,89 @@ components:
           items: { $ref: '#/components/schemas/Expense' }
         next_cursor: { type: string, nullable: true }
 
+    # ---------- group timeline ----------
+    TimelineExpense:
+      type: object
+      required: [kind, date, expense]
+      properties:
+        kind: { type: string, enum: [expense] }
+        date: { type: string, format: date, description: "The ordering date: expense.expense_date" }
+        expense: { $ref: '#/components/schemas/Expense' }
+    TimelineSettlement:
+      type: object
+      required: [kind, date, settlement]
+      properties:
+        kind: { type: string, enum: [settlement] }
+        date: { type: string, format: date, description: "The ordering date: settlement.settled_on" }
+        settlement: { $ref: '#/components/schemas/Settlement' }
+    TimelineItem:
+      description: >
+        One entry of a group timeline: an expense or a settlement, discriminated by `kind`.
+      oneOf:
+        - $ref: '#/components/schemas/TimelineExpense'
+        - $ref: '#/components/schemas/TimelineSettlement'
+      discriminator:
+        propertyName: kind
+        mapping:
+          expense: '#/components/schemas/TimelineExpense'
+          settlement: '#/components/schemas/TimelineSettlement'
+    TimelinePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          description: >
+            Newest first by `date` desc, then the item's `created_at` desc, then its `id` desc (the expense-list rule,
+            with `settled_on` as the date of a settlement). Expenses and settlements interleave in this one order.
+          items: { $ref: '#/components/schemas/TimelineItem' }
+        next_cursor: { type: string, nullable: true }
+      example:
+        items:
+          - kind: settlement
+            date: '2026-11-05'
+            settlement:
+              id: 9d000000-0000-4000-8000-000000000001
+              group_id: 7a1d2c3b-0000-4000-8000-000000000010
+              from_user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0003
+              to_user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001
+              amount: { amount_minor: 2000, currency: INR }
+              settled_on: '2026-11-05'
+              note: null
+              batch_id: null
+              created_by: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0003
+              created_at: '2026-11-05T16:00:00Z'
+              deleted_at: null
+              version: 1
+          - kind: expense
+            date: '2026-11-05'
+            expense:
+              id: 5e0c8a1f-0000-4000-8000-000000000100
+              group_id: 7a1d2c3b-0000-4000-8000-000000000010
+              description: Groceries
+              total: { amount_minor: 10000, currency: INR }
+              category_id: 12
+              expense_date: '2026-11-05'
+              notes: null
+              split_type: equal
+              payers: [ { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001, paid_amount_minor: 10000 } ]
+              splits:
+                - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001, owed_amount_minor: 3334, input_value: null }
+                - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, owed_amount_minor: 3333, input_value: null }
+                - { user_id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0003, owed_amount_minor: 3333, input_value: null }
+              my_net: { amount_minor: 6666, currency: INR }
+              receipt_url: null
+              recurring_rule_id: null
+              comment_count: 0
+              created_by: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0001
+              updated_by: null
+              created_at: '2026-11-05T14:10:00Z'
+              updated_at: '2026-11-05T14:10:00Z'
+              deleted_at: null
+              deleted_by: null
+              version: 1
+        next_cursor: null
+
     # ---------- comments ----------
     Comment:
       type: object
@@ -700,7 +804,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         kind: { type: string, enum: [user, system] }
-        user: { allOf: [ { $ref: '#/components/schemas/UserPublic' } ], nullable: true }
+        user: { type: object, allOf: [ { $ref: '#/components/schemas/UserPublic' } ], nullable: true }
         body: { type: string }
         created_at: { type: string, format: date-time }
       example: { id: c0000000-0000-4000-8000-000000000001, kind: user, user: { id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, name: Ravi, email: ravi@example.com, avatar_url: null, is_registered: true }, body: paid in cash, created_at: '2026-11-05T15:00:00Z' }
@@ -870,11 +974,11 @@ components:
         action:
           type: string
           enum: [expense.created, expense.updated, expense.deleted, expense.restored, settlement.created, settlement.updated, settlement.deleted, settlement.restored, comment.created, group.created, group.updated, group.deleted, group.restored, group.member_added, group.member_removed, group.member_joined, friend.added, friend.removed, group.currency_converted]
-        actor: { allOf: [ { $ref: '#/components/schemas/UserPublic' } ], nullable: true, description: null = system (recurring job) }
+        actor: { type: object, allOf: [ { $ref: '#/components/schemas/UserPublic' } ], nullable: true, description: null = system (recurring job) }
         entity_type: { type: string, enum: [expense, settlement, group, friendship, comment] }
         entity_id: { type: string, format: uuid }
         group_id: { type: string, format: uuid, nullable: true }
-        summary: { type: object, additionalProperties: true, description: Snapshot for rendering, e.g. description and total }
+        summary: { type: object, additionalProperties: true, description: "Snapshot for rendering, e.g. description and total" }
         my_effect:
           type: array
           description: Change in the viewer's balance caused by this event (positive = gets back)
@@ -883,13 +987,23 @@ components:
         created_at: { type: string, format: date-time }
     ActivityPage:
       type: object
-      required: [items, next_cursor]
+      required: [items, next_cursor, unread_count]
       properties:
         items:
           type: array
           items: { $ref: '#/components/schemas/ActivityItem' }
         next_cursor: { type: string, nullable: true }
+        unread_count:
+          type: integer
+          minimum: 0
+          description: >
+            Total number of the caller's activity entries newer than `users.activity_last_read_at` (all of them when it
+            is null), not capped and not limited to this page. It ignores the `group_id` filter, `limit` and `cursor`, is
+            present on every page, and equals the number of items anywhere in the feed with `is_unread = true`. The client
+            shows it capped at "99+". `POST /activity/read` sets it to 0.
+          example: 3
       example:
+        unread_count: 3
         items:
           - id: a0000000-0000-4000-8000-000000000001
             action: expense.created
@@ -1026,6 +1140,7 @@ paths:
   /health:
     get:
       tags: [system]
+      operationId: getHealth
       summary: Liveness check
       security: []
       responses:
@@ -1041,6 +1156,7 @@ paths:
   /auth/register:
     post:
       tags: [auth]
+      operationId: registerUser
       summary: Register a new user
       description: Creates a user (or claims a placeholder with the same email) and returns tokens.
       security: []
@@ -1067,7 +1183,12 @@ paths:
   /auth/login:
     post:
       tags: [auth]
+      operationId: login
       summary: Log in with email and password
+      description: >
+        Rate limited per email (case-folded): after 5 failed attempts within 15 minutes the 6th and later attempts,
+        including one with the correct password, return 429 RATE_LIMITED until the oldest counted failure leaves the
+        window. A further limit of 20 failed attempts per client IP per 15 minutes also applies (docs/business_rules.md §11).
       security: []
       requestBody:
         required: true
@@ -1091,8 +1212,13 @@ paths:
   /auth/refresh:
     post:
       tags: [auth]
+      operationId: refreshToken
       summary: Exchange a refresh token for a new token pair (rotation)
-      description: The presented refresh token is revoked and a new one issued. Re-use of a revoked token revokes all of that user's tokens.
+      description: >
+        The presented refresh token is revoked (reason `rotated`) and a new one issued. Presenting a token that was
+        already revoked by rotation (or lost a rotation race) is treated as theft: all of that user's live refresh
+        tokens are revoked and the call returns 401 TOKEN_INVALID. Presenting a token that was revoked by logout
+        returns 401 TOKEN_INVALID only; it does not revoke any other token (docs/business_rules.md §11).
       security: []
       requestBody:
         required: true
@@ -1111,12 +1237,17 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
-              example: { code: TOKEN_INVALID, message: Session expired, please log in again }
+              example: { code: TOKEN_INVALID, message: "Session expired, please log in again" }
 
   /auth/logout:
     post:
       tags: [auth]
+      operationId: logout
       summary: Revoke a refresh token
+      description: >
+        Revokes the presented refresh token (reason `logout`) if it belongs to the caller and is live. Idempotent: an
+        already-revoked, expired, unknown or another user's token also returns 204 and revokes nothing. The caller's
+        other refresh tokens (other devices) stay valid.
       requestBody:
         required: true
         content:
@@ -1129,8 +1260,9 @@ paths:
   /auth/password-reset:
     post:
       tags: [auth]
+      operationId: requestPasswordReset
       summary: Request a password reset email
-      description: Always 202, whether or not the email exists. Token valid 60 minutes.
+      description: Always 202, whether or not the email exists. Token valid 60 minutes. Limited to 3 requests per email per hour (429 RATE_LIMITED).
       security: []
       requestBody:
         required: true
@@ -1144,6 +1276,7 @@ paths:
   /auth/password-reset/confirm:
     post:
       tags: [auth]
+      operationId: confirmPasswordReset
       summary: Set a new password using a reset token
       description: Revokes all existing refresh tokens for the user and returns a fresh session.
       security: []
@@ -1164,6 +1297,7 @@ paths:
   /users/me:
     get:
       tags: [users]
+      operationId: getCurrentUser
       summary: Current user profile
       responses:
         "200":
@@ -1174,6 +1308,7 @@ paths:
         "401": { $ref: '#/components/responses/Unauthorized' }
     patch:
       tags: [users]
+      operationId: updateCurrentUser
       summary: Update the current user's profile and preferences
       requestBody:
         required: true
@@ -1198,6 +1333,7 @@ paths:
   /friends:
     get:
       tags: [friends]
+      operationId: listFriends
       summary: List friends with balances
       parameters:
         - name: filter
@@ -1213,8 +1349,9 @@ paths:
         "401": { $ref: '#/components/responses/Unauthorized' }
     post:
       tags: [friends]
+      operationId: addFriend
       summary: Add a friend by email, phone or personal code
-      description: Creates a placeholder user and queues an invite if the person is not registered. Idempotent if already friends (returns 200).
+      description: Creates a placeholder user and queues an invite if the person is not registered. Idempotent if already friends (returns 200). "Already friends" means an active explicit friendship row exists. A person who is only an implicit friend (shares a non-deleted group, no explicit row) is not yet an explicit friend, so the call creates the explicit row and returns 201 (open_questions OQ-37c, awaiting owner confirmation).
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -1245,6 +1382,7 @@ paths:
       - $ref: '#/components/parameters/UserIdPath'
     get:
       tags: [friends]
+      operationId: getFriend
       summary: One friend with balance breakdown
       responses:
         "200":
@@ -1255,8 +1393,9 @@ paths:
         "404": { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [friends]
+      operationId: removeFriend
       summary: Remove a friend
-      description: Fails with 409 SHARED_GROUPS_EXIST while the two users share any non-deleted group (this includes friends who exist only through a shared group; they have no stored friendship). Otherwise soft-deletes non-group expenses involving only the two users, regardless of any balance, and returns 204. Returns 404 when there is no shared group and no active explicit friendship.
+      description: Fails with 409 SHARED_GROUPS_EXIST while the two users share any non-deleted group (this includes friends who exist only through a shared group; they have no stored friendship). Otherwise soft-deletes the non-group expenses AND the non-group settlements involving only the two users, regardless of any balance, and returns 204. Returns 404 when there is no shared group and no active explicit friendship.
       responses:
         "204": { description: Removed }
         "404": { $ref: '#/components/responses/NotFound' }
@@ -1270,6 +1409,7 @@ paths:
   /groups:
     get:
       tags: [groups]
+      operationId: listGroups
       summary: List the current user's groups with their balance in each
       responses:
         "200":
@@ -1280,6 +1420,7 @@ paths:
         "401": { $ref: '#/components/responses/Unauthorized' }
     post:
       tags: [groups]
+      operationId: createGroup
       summary: Create a group
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -1300,6 +1441,7 @@ paths:
   /groups/join:
     post:
       tags: [groups]
+      operationId: joinGroup
       summary: Join a group with an invite token (V2)
       requestBody:
         required: true
@@ -1319,6 +1461,7 @@ paths:
       - $ref: '#/components/parameters/GroupId'
     get:
       tags: [groups]
+      operationId: getGroup
       summary: Group detail with members and balances
       responses:
         "200":
@@ -1330,6 +1473,7 @@ paths:
         "404": { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [groups]
+      operationId: updateGroup
       summary: Update group settings (any member)
       requestBody:
         required: true
@@ -1348,6 +1492,7 @@ paths:
         "422": { $ref: '#/components/responses/Unprocessable' }
     delete:
       tags: [groups]
+      operationId: deleteGroup
       summary: Delete a group for all members (soft delete)
       responses:
         "204": { description: Deleted }
@@ -1365,6 +1510,7 @@ paths:
       - $ref: '#/components/parameters/GroupId'
     post:
       tags: [groups]
+      operationId: restoreGroup
       summary: Restore a deleted group (V2)
       responses:
         "200":
@@ -1384,6 +1530,7 @@ paths:
       - $ref: '#/components/parameters/GroupId'
     post:
       tags: [groups]
+      operationId: addGroupMembers
       summary: Add members (existing users and/or new placeholder people)
       requestBody:
         required: true
@@ -1405,6 +1552,7 @@ paths:
       - $ref: '#/components/parameters/UserIdPath'
     delete:
       tags: [groups]
+      operationId: removeGroupMember
       summary: Remove a member, or leave the group with user_id = me
       description: Fails with 409 OUTSTANDING_BALANCE if the member's balance in this group is non-zero in any currency.
       responses:
@@ -1423,6 +1571,7 @@ paths:
       - $ref: '#/components/parameters/GroupId'
     get:
       tags: [groups]
+      operationId: getGroupInviteLink
       summary: Get the current invite link (creates one if none) (V2)
       responses:
         "200":
@@ -1432,6 +1581,7 @@ paths:
               schema: { $ref: '#/components/schemas/InviteLink' }
     post:
       tags: [groups]
+      operationId: resetGroupInviteLink
       summary: Reset the invite link; the old token stops working (V2)
       responses:
         "201":
@@ -1445,6 +1595,7 @@ paths:
       - $ref: '#/components/parameters/GroupId'
     get:
       tags: [expenses]
+      operationId: listGroupExpenses
       summary: List a group's expenses, newest expense_date first
       parameters:
         - $ref: '#/components/parameters/Limit'
@@ -1462,6 +1613,7 @@ paths:
         "403": { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [expenses]
+      operationId: createGroupExpense
       summary: Add an expense to a group
       description: >
         Validates payers and split per docs/business_rules.md §2–3 and stores computed
@@ -1546,9 +1698,47 @@ paths:
         "404": { $ref: '#/components/responses/NotFound' }
         "422": { $ref: '#/components/responses/Unprocessable' }
 
+  /groups/{id}/timeline:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    get:
+      tags: [groups]
+      operationId: listGroupTimeline
+      summary: Unified group timeline of expenses and settlements, newest first
+      description: >
+        One cursor-paged list for the group detail screen. Each item is an expense or a settlement of this group
+        (`kind` discriminates). Order: `date` desc (expense_date, or settled_on for a settlement), then `created_at`
+        desc, then `id` desc, the same rule as `GET /groups/{id}/expenses`. Soft-deleted expenses and settlements are
+        omitted unless `include_deleted=true`. Caller must be a current member of the group (403 FORBIDDEN otherwise;
+        404 NOT_FOUND if the group does not exist). Items are the full `Expense` and `Settlement` objects, so the client
+        needs no second request. `GET /groups/{id}/expenses` and `GET /settlements` are unchanged.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: include_deleted
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Page of timeline items
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TimelinePage' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "422":
+          description: Malformed cursor or limit out of range
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: VALIDATION_ERROR, message: Invalid cursor, details: { fields: [ { field: cursor, message: Not a valid cursor } ] } }
+
   /expenses:
     get:
       tags: [expenses]
+      operationId: listExpenses
       summary: List or search the current user's expenses across all groups (search is premium, V2)
       parameters:
         - $ref: '#/components/parameters/Limit'
@@ -1579,6 +1769,7 @@ paths:
         "402": { $ref: '#/components/responses/PaymentRequired' }
     post:
       tags: [expenses]
+      operationId: createExpense
       summary: Add a non-group expense (group_id null) or a group expense by body
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -1611,6 +1802,7 @@ paths:
       - $ref: '#/components/parameters/ExpenseId'
     get:
       tags: [expenses]
+      operationId: getExpense
       summary: Expense detail (participants and group members only)
       responses:
         "200":
@@ -1622,6 +1814,7 @@ paths:
         "404": { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [expenses]
+      operationId: updateExpense
       summary: Edit an expense
       requestBody:
         required: true
@@ -1645,6 +1838,7 @@ paths:
         "422": { $ref: '#/components/responses/Unprocessable' }
     delete:
       tags: [expenses]
+      operationId: deleteExpense
       summary: Soft-delete an expense for everyone
       responses:
         "200":
@@ -1666,6 +1860,7 @@ paths:
       - $ref: '#/components/parameters/ExpenseId'
     post:
       tags: [expenses]
+      operationId: restoreExpense
       summary: Restore a deleted expense
       responses:
         "200":
@@ -1685,6 +1880,7 @@ paths:
       - $ref: '#/components/parameters/ExpenseId'
     post:
       tags: [expenses]
+      operationId: uploadExpenseReceipt
       summary: Upload or replace the receipt image (JPEG/PNG, max 10 MB) (V2)
       requestBody:
         required: true
@@ -1712,6 +1908,7 @@ paths:
         "422": { $ref: '#/components/responses/Unprocessable' }
     delete:
       tags: [expenses]
+      operationId: deleteExpenseReceipt
       summary: Remove the receipt image (V2)
       responses:
         "204": { description: Removed }
@@ -1721,6 +1918,7 @@ paths:
       - $ref: '#/components/parameters/ExpenseId'
     get:
       tags: [comments]
+      operationId: listExpenseComments
       summary: List comments, oldest first
       parameters:
         - $ref: '#/components/parameters/Limit'
@@ -1734,6 +1932,7 @@ paths:
         "403": { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [comments]
+      operationId: createExpenseComment
       summary: Add a comment
       requestBody:
         required: true
@@ -1760,6 +1959,7 @@ paths:
       - $ref: '#/components/parameters/GroupId'
     get:
       tags: [balances]
+      operationId: getGroupBalances
       summary: Member nets and suggested transfers for a group
       description: Transfers are simplified (business_rules §5) when the group's simplify_debts is true, otherwise pairwise (§4.2). Per currency.
       responses:
@@ -1773,6 +1973,7 @@ paths:
   /balances:
     get:
       tags: [balances]
+      operationId: getOverallBalances
       summary: Overall balances for the current user (all friends, all scopes)
       responses:
         "200":
@@ -1784,6 +1985,7 @@ paths:
   /settlements:
     get:
       tags: [settlements]
+      operationId: listSettlements
       summary: List settlements involving the current user
       parameters:
         - $ref: '#/components/parameters/Limit'
@@ -1804,6 +2006,7 @@ paths:
               schema: { $ref: '#/components/schemas/SettlementPage' }
     post:
       tags: [settlements]
+      operationId: createSettlement
       summary: Record a payment (full, partial or over)
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -1829,6 +2032,7 @@ paths:
   /settlements/settle-all:
     post:
       tags: [settlements]
+      operationId: settleAll
       summary: Settle every balance with one friend (one settlement per scope and currency)
       requestBody:
         required: true
@@ -1855,6 +2059,7 @@ paths:
       - $ref: '#/components/parameters/SettlementId'
     get:
       tags: [settlements]
+      operationId: getSettlement
       summary: Settlement detail
       responses:
         "200":
@@ -1865,6 +2070,7 @@ paths:
         "404": { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [settlements]
+      operationId: updateSettlement
       summary: Edit a settlement
       requestBody:
         required: true
@@ -1883,6 +2089,7 @@ paths:
         "422": { $ref: '#/components/responses/Unprocessable' }
     delete:
       tags: [settlements]
+      operationId: deleteSettlement
       summary: Soft-delete a settlement
       responses:
         "200":
@@ -1904,6 +2111,7 @@ paths:
       - $ref: '#/components/parameters/SettlementId'
     post:
       tags: [settlements]
+      operationId: restoreSettlement
       summary: Restore a deleted settlement
       responses:
         "200":
@@ -1923,7 +2131,9 @@ paths:
   /activity:
     get:
       tags: [activity]
+      operationId: listActivity
       summary: Activity feed for the current user, newest first (cursor paginated)
+      description: Every page carries `unread_count`, the caller's total unread entries (not capped, independent of `group_id`, `limit` and `cursor`).
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
@@ -1941,13 +2151,16 @@ paths:
   /activity/read:
     post:
       tags: [activity]
+      operationId: markActivityRead
       summary: Mark all activity up to now as read
+      description: Sets the caller's `activity_last_read_at` to now, so `unread_count` is 0 on the next `GET /activity` until newer activity arrives. Idempotent.
       responses:
         "204": { description: Marked }
 
   /recurring-expenses:
     get:
       tags: [recurring]
+      operationId: listRecurringExpenses
       summary: List recurring rules visible to the user (V2)
       parameters:
         - name: group_id
@@ -1962,6 +2175,7 @@ paths:
               schema: { $ref: '#/components/schemas/RecurringList' }
     post:
       tags: [recurring]
+      operationId: createRecurringExpense
       summary: Make an existing expense recurring (V2)
       requestBody:
         required: true
@@ -1989,6 +2203,7 @@ paths:
         schema: { type: string, format: uuid }
     patch:
       tags: [recurring]
+      operationId: updateRecurringExpense
       summary: Change interval/reminder or stop a rule (active=false) (V2)
       requestBody:
         required: true
@@ -2003,6 +2218,7 @@ paths:
               schema: { $ref: '#/components/schemas/RecurringRule' }
     delete:
       tags: [recurring]
+      operationId: deleteRecurringExpense
       summary: Delete a rule; past occurrences are kept (V2)
       responses:
         "204": { description: Deleted }
@@ -2010,6 +2226,7 @@ paths:
   /exports:
     post:
       tags: [exports]
+      operationId: createExport
       summary: Start a CSV export of a group or friend (premium, V2)
       requestBody:
         required: true
@@ -2033,6 +2250,7 @@ paths:
         schema: { type: string, format: uuid }
     get:
       tags: [exports]
+      operationId: getExport
       summary: Poll an export job
       responses:
         "200":
@@ -2046,6 +2264,7 @@ paths:
   /reminders:
     post:
       tags: [reminders]
+      operationId: createReminder
       summary: Email a settle-up reminder to someone who owes you (V2)
       description: Rate limit 1 per (sender, recipient) per 60 seconds. The server does not check that the recipient owes the sender.
       requestBody:
@@ -2061,6 +2280,7 @@ paths:
   /categories:
     get:
       tags: [reference]
+      operationId: listCategories
       summary: Category tree (seeded, cacheable for 24 h)
       security: []
       responses:
@@ -2077,6 +2297,7 @@ paths:
   /currencies:
     get:
       tags: [reference]
+      operationId: listCurrencies
       summary: Supported currencies (cacheable for 24 h)
       security: []
       responses:

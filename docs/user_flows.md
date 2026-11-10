@@ -25,10 +25,10 @@ Shared test fixture (used by every flow unless stated):
 **Alternate / error paths**
 - Password `abc1234` (7 chars) → inline error, no request.
 - Email already registered → 409 → "email already registered" under the email field; the user stays on SCR-03.
-- Wrong password → 401 `INVALID_CREDENTIALS` → combined error; the counter goes up. The 6th failure within 15 min → 429.
+- Wrong password → 401 `INVALID_CREDENTIALS` → combined error; the counter goes up. After 5 failures for the email within 15 min the 6th attempt → 429 `RATE_LIMITED` with `retry_after_seconds` (OQ-38, business_rules §11.2).
 - Offline when tapping Log in → "can't reach server", no retry loop.
 - Forgot password: `POST /auth/password-reset` → always 202 → email → link → SCR-06 → new password `newpass99` → `POST /auth/password-reset/confirm` → 200 + tokens; all other refresh tokens are revoked. A link used twice → 410.
-- Refresh token revoked on another device → the next 401 triggers 1 refresh → 401 → SCR-44 → SCR-04 with the email prefilled.
+- Refresh token revoked on another device → the next 401 triggers 1 refresh → 401 → SCR-44 → SCR-04 with the email prefilled. A token revoked by logout answers 401 without revoking the user's other tokens; only a token revoked by rotation triggers revoke-all (business_rules §11.1).
 
 **Postconditions:** 1 `users` row (`is_registered=true`); 1 active `refresh_tokens` row per logged-in device. No activity entry is written (the contract's activity actions have no sign-up event).
 

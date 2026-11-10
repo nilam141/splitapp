@@ -10,6 +10,171 @@
 
 ## Log
 
+**2026-11-09 | Backend | S1-B-7** | status: done
+- What changed: new `backend/alembic/versions/0002_refresh_token_revoked_reason.py` (nullable `revoked_reason`, backfill revoked rows as `rotated`, checks `ck_refresh_tokens_revoked_reason_valid` and `ck_refresh_tokens_reason_iff_revoked`, clean downgrade); `backend/app/models/refresh_token.py` (column + same checks); `backend/app/services_auth.py` (rotation writes `rotated`, logout writes `logout` and never overwrites an existing reason, `_revoke_all` writes `reuse_detected`; refresh only revokes all when the presented token's reason is `rotated`, otherwise 401 `TOKEN_INVALID` with no other change; lost rotation race still revokes all live tokens as `reuse_detected`). No tests edited.
+- Results: SQLite 97 passed, 4 skipped (Postgres-only); scratch Postgres 16: 101 passed, 0 skipped; `alembic upgrade head`, `downgrade base`, `upgrade head` on empty Postgres ran with no errors, `current` = 0002 (head).
+- Contract conflicts or questions: none. `password_reset` reason is allowed by the constraint but not written until S2-B-2.
+
+**2026-11-09 | QA | S1-Q-2** | status: done (tests written; they FAIL until S1-B-7, as intended)
+- What changed: new `backend/tests/test_refresh_revocation.py` (11 tests, vectors 46/47 in the ids; `revoked_reason` read via raw SQL so failures are "no such column" / old behaviour); 3 migration 0002 tests appended to `backend/tests/test_migration.py` (Postgres only: backfill revoked->`rotated` and live->null at 0001->0002, check constraints, downgrade to 0001/base and re-upgrade); `backend/tests/test_session_qa.py::test_logout_other_device_stays_valid_and_this_device_is_dead` updated to the new rule (replays the logged-out token FIRST, then expects the other device to still refresh).
+- Results: SQLite default run 11 failed (new) + 1 failed (updated test) + 86 passed; against a scratch Postgres 16 (TEST_DATABASE_URL) 15 failed, rest passed. Failures: `no such column revoked_reason` / `No such revision '0002'` / `assert 401 == 200` (old revoke-all on logout replay).
+- Contract conflicts or questions: none. Ambiguities: see QA report (backfill of `logout`-origin rows; unknown token with password_reset reason untested until S2-B-2).
+- Next agent should: Backend implements S1-B-7 (migration 0002 + model column + services_auth) without editing these tests.
+
+**2026-11-09 | Mobile | S1-M-4** | status: done (not run on emulator/device)
+- What changed: regenerated `mobile/src/api/generated` from contract 0.2.0 (`npm run api:generate`, then `npx prettier --write src/api/generated`; `prettier --check` clean). Renamed uses per the table: `src/api/http.ts` (getLoginUrl, getLogoutUrl, getRefreshTokenUrl, getRegisterUserUrl, refreshToken imported as `refreshTokenRequest`), `src/auth/AuthContext.tsx` (getCurrentUser, logout imported as `logoutRequest`), `src/screens/LogInScreen.tsx` (useLogin), `src/screens/SignUpScreen.tsx` (useRegisterUser), `src/components/CurrencyPicker.tsx` (useListCurrencies). Tests needed no change (they mock fetch by URL). Behavior unchanged. Generated types now include `listGroupTimeline` and `ActivityPage.unread_count`; no UI built.
+- Checks: `api:lint` valid, 0 errors, 17 warnings, none about operationId (14 operation-4xx-response, info-license, no-server-example.com, no-unused-components); typecheck clean; eslint clean; jest 6 suites, 51 passed. grep finds no old derived names outside generated output.
+- Contract conflicts or questions: none. Unverified: emulator run and Android build.
+
+**2026-11-09 | Architect | owner decisions batch: contract 0.2.0** | status: done (docs only; `redocly lint` NOT run, this agent has no shell; owner/orchestrator to run `cd mobile && npx redocly lint ../docs/openapi.yaml`)
+- Contract version: `docs/openapi.yaml` 0.1.1 -> **0.2.0**. Chosen over 0.1.2 because the release adds an endpoint and a required response field and renames every generated symbol (operationIds). All changes below were approved by the owner.
+- Contract changes: (1) `operationId` on all 57 operations (56 existing + new timeline), camelCase, unique (grep count 57). (2) New `GET /groups/{id}/timeline` (`listGroupTimeline`), query `limit`, `cursor`, `include_deleted`; responses 200 `TimelinePage`, 401, 403, 404, 422. (3) New schemas `TimelineExpense`, `TimelineSettlement`, `TimelineItem` (oneOf + discriminator `kind`), `TimelinePage`. (4) `ActivityPage.unread_count`: required integer, minimum 0 (a required field added to an existing response). (5) `Error.code` gains `INTERNAL_ERROR`; HTTP-status-to-code table added to the header (405 and 501 -> `NOT_IMPLEMENTED`, 500 -> `INTERNAL_ERROR`). (6) Descriptions only, no shape change: `/auth/refresh` (reuse rules), `/auth/logout`, `/auth/login` (5 failures / 15 min), `/auth/password-reset` (3 per hour), `POST /friends` (implicit friend still 201 + explicit row, pending OQ-37c), `DELETE /friends/{user_id}` (also soft-deletes non-group settlements), `/activity`, `/activity/read`. (7) Tag descriptions added for all 14 tags (cheap lint warnings). Not changed: `GET /currencies` is still a bare array; no 4XX responses invented on the 14 operations lacking one (each needs its own check); unused `BadRequest` component and missing `license` left for the owner. Expected lint result (unverified): no operationId warnings and no tag-description warnings; the other warnings (4XX, unused `BadRequest`, license) unchanged.
+- Decisions applied: 1 (OQ-41) INTERNAL_ERROR / 405: reading = 405 -> `NOT_IMPLEMENTED` (backend `errors.py` already does this), 500 stays `INTERNAL_ERROR`, 500 is NOT mapped to `NOT_IMPLEMENTED`. 2 (OQ-39) operationIds; OQ-40's `/currencies` shape unchanged. 3 (OQ-42) logout-revoked token: 401 `TOKEN_INVALID`, no revoke-all; revoke-all stays for rotated tokens and lost rotation races; `refresh_tokens.revoked_reason` in (`rotated`, `logout`, `reuse_detected`, `password_reset`), migration 0002, task S1-B-7, QA S1-Q-2, vectors 46 and 47, business_rules new §11.1. 4 (OQ-36 / D-A) `unread_count`, SCR-07, business_rules §12, data_model derivation, vector 49, S5-B-3 computes it, S5-M-2 unblocked. 5 (OQ-35 / D-B) timeline, SCR-13, vector 50, tasks S3-Q-5, S3-B-6, S5-Q-3, S5-B-4, S3-M-3 and S5-M-3. 7 (OQ-38) login 5 failed attempts per email per 15 min (6th attempt blocked, matches F-02 AC5), other thresholds kept; business_rules §11.2, vector 48, S2-Q-3, S2-B-7.
+- Decision 6 (OQ-37), partly applied. Applied (unambiguous): (b) friend removal also soft-deletes the pair's non-group settlements (F-11, business_rules §10.2, data_model, openapi description, SCR-20, S3-M-6, vector 51, S5-Q-1, S5-B-4; S3-B-4 stays expenses-only because the `settlements` table ships in S5-B-1). NOT applied, needs the owner: the owner's letters do not match the sub-question letters in OQ-37 ("OQ-37a - implicit friend counts", "OQb - correct", "OQc - delete non group settlements..."). The third line is clearly the settlements question (OQ-37b). "implicit friend counts" fits OQ-37c (200, no row) and also OQ-37a (keep in list while non-group items exist); "correct" fits either. The documented behaviour stands: implicit friends vanish with the last shared group (a), `POST /friends` on an implicit friend creates the explicit row and returns 201 (c). Owner: answer (a) and (c) explicitly.
+- Backend note for S1-B-7: reuse detection code is in `backend/app/services_auth.py` (`_revoke_all`, rotation claim); it must read `revoked_reason` instead of treating any `revoked_at` as reuse.
+- Operation id table (old name derived by orval from method + path, as in `mobile/src/api/generated/splitapp.ts`; hooks are `use` + the capitalised name; new name = the new `operationId`, hook `use` + capitalised). Mobile: rename mechanically; inline types orval names from the operationId (for example `GetFriendsParams`) change too.
+
+| Old derived name | New operationId |
+|---|---|
+| getHealth | getHealth |
+| postAuthRegister | registerUser |
+| postAuthLogin | login |
+| postAuthRefresh | refreshToken |
+| postAuthLogout | logout |
+| postAuthPasswordReset | requestPasswordReset |
+| postAuthPasswordResetConfirm | confirmPasswordReset |
+| getUsersMe | getCurrentUser |
+| patchUsersMe | updateCurrentUser |
+| getFriends | listFriends |
+| postFriends | addFriend |
+| getFriendsUserId | getFriend |
+| deleteFriendsUserId | removeFriend |
+| getGroups | listGroups |
+| postGroups | createGroup |
+| postGroupsJoin | joinGroup |
+| getGroupsId | getGroup |
+| patchGroupsId | updateGroup |
+| deleteGroupsId | deleteGroup |
+| postGroupsIdRestore | restoreGroup |
+| postGroupsIdMembers | addGroupMembers |
+| deleteGroupsIdMembersUserId | removeGroupMember |
+| getGroupsIdInviteLink | getGroupInviteLink |
+| postGroupsIdInviteLink | resetGroupInviteLink |
+| getGroupsIdExpenses | listGroupExpenses |
+| postGroupsIdExpenses | createGroupExpense |
+| (new in 0.2.0) | listGroupTimeline |
+| getExpenses | listExpenses |
+| postExpenses | createExpense |
+| getExpensesId | getExpense |
+| patchExpensesId | updateExpense |
+| deleteExpensesId | deleteExpense |
+| postExpensesIdRestore | restoreExpense |
+| postExpensesIdReceipt | uploadExpenseReceipt |
+| deleteExpensesIdReceipt | deleteExpenseReceipt |
+| getExpensesIdComments | listExpenseComments |
+| postExpensesIdComments | createExpenseComment |
+| getGroupsIdBalances | getGroupBalances |
+| getBalances | getOverallBalances |
+| getSettlements | listSettlements |
+| postSettlements | createSettlement |
+| postSettlementsSettleAll | settleAll |
+| getSettlementsId | getSettlement |
+| patchSettlementsId | updateSettlement |
+| deleteSettlementsId | deleteSettlement |
+| postSettlementsIdRestore | restoreSettlement |
+| getActivity | listActivity |
+| postActivityRead | markActivityRead |
+| getRecurringExpenses | listRecurringExpenses |
+| postRecurringExpenses | createRecurringExpense |
+| patchRecurringExpensesId | updateRecurringExpense |
+| deleteRecurringExpensesId | deleteRecurringExpense |
+| postExports | createExport |
+| getExportsId | getExport |
+| postReminders | createReminder |
+| getCategories | listCategories |
+| getCurrencies | listCurrencies |
+
+- New or changed task IDs: new S1-Q-2, S1-B-7, S1-M-4, S2-Q-3, S3-Q-5, S3-B-6, S5-Q-3, S5-B-4, S5-M-3. Changed: S2-B-2, S2-B-7, S3-B-4, S3-M-3, S3-M-6, S5-Q-1, S5-B-1, S5-B-3, S5-M-2 (unblocked). Coverage map extended (vectors 46 to 51).
+- Contract conflicts: none open besides OQ-37 (a) and (c). Noticed: operationId names can collide with function names inside the mobile `src/api/http.ts` (for example `login`, `logout`, `refreshToken`); the generated file lives in `src/api/generated/splitapp.ts`, so import by alias if needed.
+- Next agent should: run `npx redocly lint ../docs/openapi.yaml`; QA S1-Q-2 then Backend S1-B-7; Mobile S1-M-4 (regenerate and rename); the owner answers OQ-37 (a) and (c).
+- Files changed: docs/openapi.yaml, docs/data_model.md, docs/business_rules.md, docs/tasks.md, docs/features.md, docs/screens.md, docs/user_flows.md, docs/agent_prompts.md, docs/open_questions.md, docs/progress.md.
+
+**2026-11-07 | QA | S1-Q-1 follow-up (known gaps replaced, CI extended)** | status: done (tests and CI only; not committed; CI not run on a runner)
+- Replaced: backend `test_users_me_not_implemented_in_slice_1` -> `test_users_me_returns_the_registered_user` (200, body == register user, plan/friend_code/10 prefs true). Mobile "KNOWN GAP" describe in `slice1Smoke.test.tsx` -> "Session restore against the Slice 1 backend": the fake backend now serves `/users/me` (200 only with the current bearer, else 401 TOKEN_INVALID) and `/auth/logout` (204). New tests: cold start with stored tokens lands in tabs (exactly one `GET /users/me`, tokens untouched); login then simulated restart stays signed in (no second login); logout posts once with the stored refresh token, empties storage, restart lands on welcome; logout answering 500 still clears and restart stays signed out; 401 + refresh 401 clears keystore; `/users/me` 404 and 500 keep tokens, show Retry (still there after a second failed attempt), and Retry recovers.
+- Added `backend/tests/test_session_qa.py` (16 tests), only what test_users_me.py lacked: caller isolation (two users), rotated access token works, missing exp/sub/type and HS512 rejected, no credential leak, PATCH /users/me does not mutate; logout: revoked token stays dead, other device stays valid, A bearer + B token revokes nothing at all (DB check), second logout leaves revoked_at and all other rows unchanged, expired refresh token 204, bad bearers (garbage, expired, refresh-as-access, type=refresh) 401 and revoke nothing, soft-deleted bearer 401, body validation 422, access token in body 204 no-op, logout with the rotated token after a refresh.
+- Review of backend/mobile tests (no tautologies found). Weaker points: (a) "expired token" tests use a past `exp` instead of frozen time (equivalent, S1-B-5 wording says frozen); (b) the lost-race test is sequential, not concurrent (backend already says so); (c) `test_status_mapping_other_codes` and the 500 test exercise a throwaway FastAPI app with `install_error_handlers`, not the real app's wiring (real 404/405 are covered); (d) `test_logout_keeps_other_devices` did not assert the logged-out device is dead (my new test does); (e) mobile `auth.test.tsx` USER fixture has `notification_prefs: {}` and omits fields, so it does not check the real shape (smoke test does); (f) the mobile fake `/users/me` in smoke accepts only `Bearer acc1`, so it would catch a missing Authorization header.
+- Design note (not a bug): replaying an already logged-out refresh token is treated as reuse and revokes the user's other live tokens (my first draft of the other-device test tripped on this). Acceptable, but a stale client retry after logout can sign out the user's other devices; mention to Architect for S2-B-2.
+- CI (`.github/workflows/ci.yml`): Python 3.13 -> 3.12 (matches backend/Dockerfile python:3.12-slim); new step `alembic upgrade head && alembic downgrade base && alembic upgrade head` (DATABASE_URL = the Postgres service) before pytest; mobile: `npm run api:lint`, then `npm run api:generate` + `npx prettier --write src/api/generated` + `git diff --exit-code -- src/api/generated` + a `git status --porcelain` check for untracked generated files (git diff ignores them). Prettier step is needed: raw orval output differs from the committed prettier-formatted copy; after prettier it is byte-identical (verified). Locally `mobile/src/api/` is still untracked, so the diff gate only means something once it is committed.
+- Results: backend SQLite 86 passed, 1 skipped (migration test, needs Postgres), 0 failed; Postgres 16 scratch (temp data dir in scratchpad, stopped afterwards) 87 passed, 0 failed, and the alembic upgrade/downgrade/upgrade round trip exit 0; mobile typecheck clean, eslint clean, jest 6 suites 51 passed, 0 failed; `npm run api:lint` valid (0 errors, 87 warnings).
+- App bugs found: none. Gaps: no real concurrency test for the refresh race; no login 429 test (S2-B-7); `INTERNAL_ERROR`/405 `NOT_IMPLEMENTED` are not in the openapi code list (backend already raised it); Android build/emulator not run.
+- Files: backend/tests/test_auth_contract.py, backend/tests/test_session_qa.py (new), mobile/__tests__/slice1Smoke.test.tsx, .github/workflows/ci.yml, docs/progress.md.
+
+**2026-11-07 | Backend | S1-B-5, S1-B-6 + reviewer fixes** | status: done (not committed)
+- S1-B-5: `GET /users/me` (`app/routers/users.py`) and `get_current_user` (`app/auth_deps.py`): HS256 only, requires `exp`/`sub`, `type=access`, uuid sub, user exists, not soft-deleted, `is_registered`; all failures 401 `TOKEN_INVALID` + `WWW-Authenticate: Bearer`. No PATCH.
+- S1-B-6: `POST /auth/logout` (204, bearer required, revokes presented token only if it is the caller's and live; unknown/revoked/other user's token -> 204, nothing else revoked).
+- Refresh race: rotation now claims the row with `UPDATE ... WHERE id=? AND revoked_at IS NULL` and checks rowcount; a lost race is treated as reuse (revoke all live tokens of the user, 401). Test simulates the lost race with two sessions (sequential), not real concurrency.
+- Secrets: `Settings.env` (ENV, default `development`); app refuses to start if ENV is production/prod and `JWT_SECRET` is the dev default. Dev value remains in `.env.example` and docker-compose (compose now `${JWT_SECRET:-dev default}` and sets `ENV: development`).
+- Errors: explicit status map: 401 TOKEN_INVALID, 403 FORBIDDEN, 404 NOT_FOUND, 405 and 501 NOT_IMPLEMENTED, 429 RATE_LIMITED, other 4xx (400, 413, 415...) VALIDATION_ERROR, 5xx `INTERNAL_ERROR`. Catch-all handler returns 500 `{code: INTERNAL_ERROR, message: "Internal server error"}`, logs server-side only.
+- CONTRACT QUESTION: the openapi `Error.code` known-values list has no code for a 500. I used `INTERNAL_ERROR` (the field is a free string, so the shape is valid) but it is not documented; architect to add it or name another code. 405 -> NOT_IMPLEMENTED is also a closest-fit choice.
+- Tests: SQLite 69 passed, 1 skipped (migration), 1 failed; Postgres 16 (scratch, stopped afterwards) 70 passed, 1 failed. The single failure is by design: `backend/tests/test_auth_contract.py::test_users_me_not_implemented_in_slice_1` (asserts 404 on /users/me); QA to replace. New tests: `backend/tests/test_users_me.py` (S1-B-5 and S1-B-6), `backend/tests/test_hardening.py`.
+- Files: backend/app/{auth_deps.py,config.py,errors.py,main.py,services_auth.py}, backend/app/routers/{users.py,auth.py}, backend/.env.example, backend/tests/{test_users_me.py,test_hardening.py}, docker-compose.yml, docs/progress.md.
+
+**2026-11-07 | Mobile | S1-M-3 reviewer fixes** | status: done (Android build/emulator NOT verified)
+- Restore: `AuthContext` no longer calls `clearTokens()` on a non-200 from `GET /users/me`. 200 -> signed in; 401 -> signed out only if the HTTP layer already cleared the tokens (refresh rejected), otherwise (refresh failed on the network) Retry; 404, 5xx, network error -> tokens kept, `status='error'` (Retry screen).
+- Cleartext: `${usesCleartextTraffic}` was not defined anywhere in gradle (manifest merge would have failed). `android/app/build.gradle` now sets `manifestPlaceholders usesCleartextTraffic` to "true" in debug and "false" in release. `src/config.ts`: `API_BASE_URL` = `http://10.0.2.2:8000` when `__DEV__`, else `https://api.splitapp.example` (placeholder host, must be set before shipping).
+- Logout: body is `{refresh_token}` as stored. `src/api/http.ts` now rebuilds the `/auth/logout` body from storage after an automatic 401 refresh, so the retry carries the rotated token (new test: expired access -> refresh r1->r2 -> logout bodies [r1, r2]). Local state is cleared even if the call fails (offline test added).
+- Tests: added 404, 500, network-failure, 401+refresh-network-failure, offline-logout cases in `mobile/__tests__/auth.test.tsx` (existing tests already cover 200, and 401+rejected refresh -> signed out with tokens cleared). QA's 2 "KNOWN GAP" tests in `slice1Smoke.test.tsx` now fail by design (they expect welcome + wiped tokens on 404); QA to replace.
+- Checks: typecheck exit 0, eslint exit 0, jest 44 passed / 2 failed (the two KNOWN GAP tests).
+- Files: mobile/src/auth/AuthContext.tsx, mobile/src/config.ts, mobile/src/api/http.ts, mobile/android/app/build.gradle, mobile/__tests__/auth.test.tsx, docs/progress.md.
+
+**2026-11-07 | Architect | Slice 1 review follow-up: S1-B-5, S1-B-6, S2-B-7** | status: done (docs only; openapi.yaml NOT touched)
+- Decision 1 (blocker): `GET /users/me` plus the bearer-auth dependency `get_current_user` moved into new **S1-B-5**; **S2-B-3** now covers `PATCH /users/me` only. S1-B-5 tests: 200 and `UserMe` shape; 401 `TOKEN_INVALID` for no token, bad token, expired token, refresh token used as access token (also soft-deleted user). S1-M-3 done-when now names `/users/me` and logout; ordering note added (S1-B-5 after S1-B-3, S1-B-6 after S1-B-5, S1-Q-1 last).
+- Decision 2: `/auth/logout` moved into new **S1-B-6** (revoke the presented refresh token, 204, idempotent: already-revoked, expired, unknown or another user's token also gives 204 and revokes nothing extra). Reasons: tiny; without it the mobile Log out button gets 404 and the refresh token stays valid for 30 days (a stolen device keeps a session); the endpoint needs only S1-B-5 and the existing `refresh_tokens` table; openapi already defines it. It stays authenticated (the contract lists 401 and a bearer), so it depends on S1-B-5. S2-B-2 keeps password reset and reuse detection; its "revoked refresh -> 401" check now lives in S1-B-6.
+- S1-Q-1 updated: replace the known-gap tests (`test_users_me_not_implemented_in_slice_1`, the "KNOWN GAP" describe in `slice1Smoke.test.tsx`); add mobile tests that `/users/me` 404 or 500 keeps tokens and shows Retry, and that Log out calls `/auth/logout` and clears storage even if the call fails. Mobile follow-up for the Mobile agent: the QA finding says `AuthContext` wipes the keystore on ANY non-200 from `/users/me`; the intended behaviour (only a refresh 401 clears the session; 404/5xx/network keep tokens and show Retry) needs a code fix under S1-M-3, which QA's new test will enforce.
+- Decision 3: login rate limiting -> new **S2-B-7** (login and password-reset 429); thresholds are not in the contract, proposed in **OQ-38**. Bare-array `GET /currencies` vs `{items}`: recorded as **OQ-40**, deferred to the next breaking contract version, not changed. operationIds: still open for the owner (**OQ-39**), recommended before more client code accretes.
+- Coverage map in tasks.md gained two rows (auth session, auth rate limiting). `agent_prompts.md` Step 2 lists S1-B-5 and S1-B-6. Note: the S2-B-7 row sits above S2-B-6 in the table (ID order only; it can run any time after S1-B-3).
+- Noticed, no action: openapi `/auth/logout` requires a bearer AND a refresh token in the body; if the access token has expired, the client's 401 handler refreshes first, which rotates the refresh token, so the client must send the NEW refresh token. Mobile should read tokens from storage after the refresh, not before. Contract conflicts: none.
+- Files changed: docs/tasks.md, docs/agent_prompts.md, docs/open_questions.md, docs/progress.md.
+
+**2026-11-07 | QA | S1-Q-1** | status: done with 1 finding that blocks the Slice 1 goal end-to-end (test-only changes; no app code touched)
+- Added: `backend/tests/test_auth_contract.py` (26 tests: AuthResponse/TokenPair/UserMe shapes, JWT claims and 900 s lifetime, refresh rotation, reuse revokes all live tokens of that user but no other user's, expired/soft-deleted/placeholder cases, password and name bounds, placeholder claim keeps id and friend_code, Error body shape), `backend/tests/test_currencies_contract.py` (5 tests: 30+ rows, INR 2 / JPY 0 / KWD 3, Currency schema, every seeded code accepted by register), `mobile/__tests__/slice1Smoke.test.tsx` (7 tests), `.github/workflows/ci.yml` (backend pytest on a Postgres 16 service; mobile typecheck, eslint, jest). Edited `mobile/__tests__/auth.test.tsx`: QueryClient now has `gcTime: Infinity` and `retry: false`; before this, `jest` printed "Jest did not exit one second after the test run has completed" and never returned (CI would hang).
+- Results: backend 50 passed on PostgreSQL 16 (scratch server, real migrations); 49 passed + 1 skipped (migration test) on SQLite. Mobile: `tsc --noEmit` exit 0, `eslint .` exit 0, jest 6 suites / 40 tests passed, process exits. CI not run (no GitHub runner here).
+- FINDING (not fixed): mobile session restore calls `GET /users/me`; the Slice 1 backend has no such route and answers 404 `NOT_FOUND`. `AuthContext` treats any non-200 as signed out and wipes the keystore, so against the Slice 1 backend a login does NOT survive an app restart (S1-M-3 done-when unmet end-to-end). The existing auth tests mock `/users/me` as 200 and hide this. Covered now by `slice1Smoke.test.tsx` ("KNOWN GAP" describe, asserts current behavior) and `test_users_me_not_implemented_in_slice_1` (backend, asserts 404). Both must be replaced when S2-B-3 ships. Suggested options for the owner: pull `GET /users/me` forward into Slice 1, or have the client restore from the stored login user.
+- No hypothesis/property tests: Slice 1 has no money paths (property tests are S3-Q-2 and S4-Q-2). Money-float grep over backend/app and mobile/src (excluding generated): none. Generated client: regenerated with orval and compared with the committed copy after prettier: identical, no hand edits.
+- Gaps: no test for login rate limiting (429), `/auth/logout`, `/users/me`, auth dependency (not built). Contract is checked by hand-written shape assertions, not a schema validator (S2-Q-1). Docker compose and the emulator were not run.
+- Contract conflicts or questions: none new.
+- Files changed: backend/tests/test_auth_contract.py, backend/tests/test_currencies_contract.py, mobile/__tests__/slice1Smoke.test.tsx, mobile/__tests__/auth.test.tsx, .github/workflows/ci.yml, docs/progress.md.
+
+**2026-11-07 | Backend | S1-B-1, S1-B-2, S1-B-3, S1-B-4** | status: done (docker compose NOT run; Docker is not installed on this machine)
+- What changed: `docker-compose.yml` (postgres:16 + api), `backend/` (FastAPI app, SQLAlchemy models, Alembic migration 0001, tests). Endpoints: `GET /health`, `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `GET /currencies`. Migration 0001 creates `currencies` (35 seeded rows, INR 2, JPY 0, KWD 3), `users` (all data_model columns, citext email, partial unique indexes) and `refresh_tokens`; downgrade drops them and the citext extension.
+- Tests: 19 passed on PostgreSQL 16 (TEST_DATABASE_URL, schema built by the real migrations, including upgrade/downgrade/upgrade); 18 passed + 1 skipped (migration test) on the default in-memory SQLite.
+- Decisions inside the contract: errors use the top-level `Error` body (`code`, `message`, `details`), also for request validation (`VALIDATION_ERROR` with `details.fields`); reuse of a revoked refresh token revokes all of that user's live tokens; register claims an existing unregistered placeholder with the same email; the invalid/expired/unknown refresh token all return 401 `TOKEN_INVALID`; unknown `time_zone` is a 422 `VALIDATION_ERROR`; `/currencies` sends `Cache-Control: public, max-age=86400`.
+- Not done (outside the four tasks): `/auth/logout`, password reset, `/users/me`, auth dependency for protected routes, login rate limiting (429 `RATE_LIMITED`), `plan`/`premium_until` are constants (free / null) until subscriptions exist.
+- Contract conflicts or questions: none. Minor: openapi `/currencies` returns a bare array while other lists are wrapped in `{items}`; implemented as written.
+- Next agent should: S1-Q-1 can run the API tests; S2-B-1 adds the next migration with `down_revision = "0001"`.
+
+**2026-11-07 | Mobile | S1-M-2 and S1-M-3** | status: done (Android build and emulator run NOT verified)
+- S1-M-2: `npm run api:lint` passes (0 errors, 87 warnings); `npm run api:generate` produced `mobile/src/api/generated/` (orval, fetch + React Query v5 hooks, never hand-edited, excluded from eslint). Generated names come from method+path (`postAuthLogin`, `usePostAuthLogin`, `useGetCurrencies`, `getUsersMe`) because operationIds are absent; app code imports them only from `src/api/generated/splitapp`, so adding operationIds later is a mechanical rename. Typecheck needed the mutator's `init` type widened (`FetchInit` in `src/api/http.ts`) because RN's `AbortSignal`/`FormData` types clash with the ones the generated code uses; no generated file was touched.
+- S1-M-3: sign up (SCR-03) and log in (SCR-04) wired to the generated register/login calls; currency picker modal via `GET /currencies` (loading, empty, error+Retry); `AuthProvider` restores the session on launch (SCR-01): tokens from Android keystore, `GET /users/me`, Retry screen when the server is unreachable, welcome when the refresh token is rejected; log out on the Account tab. `src/api/http.ts` refreshes once on 401 via the generated `postAuthRefresh` (single-flight, rotated tokens saved, session cleared and UI notified if refresh returns 401, kept on network failure).
+- Not done / deviations: forgot-password link (SCR-04) and verify-code (SCR-05) not built; default currency is INR rather than derived from device locale (time zone is taken from the device).
+- Contract questions: none new.
+- Next agent should: verify on the emulator (`npx react-native run-android`, backend at 10.0.2.2:8000), especially persistence across a real app restart.
+- Files changed: mobile/ (src/api, src/auth, src/screens, src/components, src/navigation, __tests__, App.tsx, .eslintrc.js, orval.config.ts, jest.*), docs/progress.md.
+
+**2026-11-07 | Architect | openapi.yaml syntax fix (no version bump)** | status: done
+- Syntax-only change to `docs/openapi.yaml` (v0.1.1 unchanged, no semantic change): quoted flow-mapping descriptions/examples containing commas (`Error.message` description, `ActivityItem.summary` description, `/auth/refresh` 401 example message); added `type: object` beside `allOf` + `nullable` on the `user` (~703) and `actor` (~873) properties. No operationIds, endpoints, fields or schemas added.
+- Validation: `npx redocly lint ../docs/openapi.yaml` (run from `mobile/` by the orchestrator after the fix): valid, 0 errors, 87 warnings (no operationIds on 56 operations, 14 operations without a 4XX response, 14 tags without description, unused `BadRequest`, no license).
+- Open decision for the owner: add `operationId`s (recommended by Architect and mobile agent; would be a deliberate contract bump v0.1.2 and changes generated client names, so do it before the first real generation).
+- Incident: during this run `docs/progress.md` was accidentally overwritten. It was restored from the committed version plus re-created entries (this one and the mobile entry below). Any uncommitted entries written between the last commit and this run, other than those re-created here, may be lost; authors should re-append if missing.
+
+**2026-11-07 | Mobile | S1-M-1 done; S1-M-2, S1-M-3 blocked then unblocked** | status: partial
+- S1-M-1 done: React Native 0.88 + TypeScript strict, Android only (iOS folder removed). `App.tsx` with SafeAreaProvider, QueryClientProvider, NavigationContainer; root navigator switches on `signedIn` (hard-coded false until S1-M-3); auth stack (Welcome, Sign up and Log in placeholders) and tab shell (Friends, Groups, Activity, Account placeholders); `src/config.ts` base URL `http://10.0.2.2:8000`; `src/auth/tokenStorage.ts` (Android keystore via react-native-keychain, no AsyncStorage); `src/api/http.ts` fetch wrapper for the generated client (token refresh on 401 not written yet); `orval.config.ts` and scripts `typecheck`, `api:lint`, `api:generate`. Upgraded prettier 2 to 3 to resolve a dependency conflict.
+- Results: `tsc --noEmit` exit 0; `eslint .` exit 0; `jest` 3 suites / 8 tests pass.
+- Blocker found: `docs/openapi.yaml` v0.1.1 failed `redocly lint` (5 errors) and `orval` (3 errors): unquoted commas inside flow mappings (`Error.message`, `ActivityItem.summary`, `/auth/refresh` 401 example) and `allOf` + `nullable` without `type` on `user`/`actor`. Fixed syntax-only by the Architect (entry above). S1-M-2 (generate client) and S1-M-3 (login, signup, currency picker, session restore) were not started until the fix.
+- Not verified: `./gradlew assembleDebug` did not finish (still downloading after 10+ min, killed); app not booted on the emulator (AVD `Medium_Phone_API_36` exists). Run `npx react-native run-android` by hand.
+- Contract conflicts or questions: operationIds (see Architect entry above).
+- Next agent should: re-run S1-M-2 and S1-M-3 against the fixed contract.
+
 **2026-11-07 | Architect | owner decisions OQ-31 to OQ-34** | status: done (docs only; no schema, field or endpoint changed)
 - What changed: recorded OQ-31..34 as decided in open_questions.md. OQ-31: currency immutable on PATCH (422 `VALIDATION_ERROR`, reused, `details.fields[].field` = `total.currency` / `amount.currency`). OQ-32: friend removal never blocked by balance, mobile must warn. OQ-33: friend list derived (explicit UNION shared non-deleted group), no implicit rows, new index `group_members(user_id, group_id) where left_at is null`. OQ-34: no owes-check on reminders. New business_rules §10 and vectors 41-45; new tasks S2-Q-2, S3-Q-4, S6-Q-4 (QA, before the matching backend tasks), S3-M-6 (remove-friend confirmation, previously unowned); S2-B-4/S2-B-5/S3-B-4/S5-Q-1/S6-B-3 updated; coverage map extended.
 - Friend removal on an implicit-only friend: `DELETE /friends/{id}` returns the existing 409 `SHARED_GROUPS_EXIST` (they always share a group); once no group is shared and no explicit row exists, 404 `NOT_FOUND`. No new error code.

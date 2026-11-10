@@ -233,7 +233,7 @@ graph TD
 | Tab bar | 4 tabs | – | Friends, Groups, Activity, Account; the last tab is remembered |
 | Add expense | floating button | – | hidden on Account |
 | Search icon | icon | – | V2, gated (F-47) |
-| Activity badge | counter | – | unread activity count, capped at "99+" |
+| Activity badge | counter | – | `unread_count` from `GET /activity` (decided 2026-11-09, OQ-36); the server does not cap it, the client shows the number up to 99 and "99+" above 99; hidden at 0. Refreshed on launch, on foreground and after `POST /activity/read`; opening the Activity tab (SCR-10) calls `POST /activity/read` and sets the badge to 0 |
 
 **Actions**
 | Action | Result | Navigates to |
@@ -392,7 +392,7 @@ graph TD
 |---|---|---|---|
 | Header | name, image, user's balance lines per member | – | at most 3 lines, then "+N more" |
 | Action row | buttons: Settle up, Balances, Totals, Charts, Export | – | Totals, Charts and Export gated (F-46) |
-| Expense list | rows grouped by month: date, description, payer + amount, user's effect | – | payment rows styled differently |
+| Timeline list | rows grouped by month: date, description, payer + amount, user's effect | – | one list from `GET /groups/{id}/timeline` (decided 2026-11-09, OQ-35): items with `kind: expense` render as expense rows, `kind: settlement` as payment rows (styled differently); no client-side merging; infinite scroll with `next_cursor` |
 | Settled-up marker | row | – | "everything before this date is settled; tap to show" |
 | Add expense | floating button | – | prefilled with this group |
 
@@ -405,6 +405,7 @@ graph TD
 | Tap Balances | – | SCR-15 |
 | Tap Totals | – | SCR-16 or SCR-39 |
 | Tap settings icon | – | SCR-14 |
+| Scroll to end | GET `/groups/{id}/timeline?cursor=` | – |
 
 **States:** empty with 1 member: "add people" button. Empty with members: "no expenses yet". All settled: "you are all settled up in this group".
 **Evidence:** group screen and layout, add-people button layout, no-members and settled-up views observed (static).
@@ -572,7 +573,7 @@ graph TD
 | Element | Type | Required | Validation / notes |
 |---|---|---|---|
 | Shared groups | list | – | tap → SCR-13 |
-| Remove friend | destructive | – | refused while there are shared groups (so always refused for a friend who exists only through a shared group, OQ-33). **Never blocked by a balance (OQ-32):** the confirmation dialog must warn that non-group expenses and any balance with this person will be deleted, showing the current non-group balance if non-zero |
+| Remove friend | destructive | – | refused while there are shared groups (so always refused for a friend who exists only through a shared group, OQ-33). **Never blocked by a balance (OQ-32):** the confirmation dialog must warn that non-group expenses, non-group payments and any balance with this person will be deleted (OQ-37b), showing the current non-group balance if non-zero |
 | Block | destructive | – | V2 |
 | Convert non-group to default currency | row | – | Later, gated |
 

@@ -29,9 +29,12 @@ Backend and mobile touch different folders, so they can run in parallel.
 
 ```
 Implement Slice 1 from docs/tasks.md.
-1. Run the backend subagent for S1-B-1, S1-B-2, S1-B-3, S1-B-4 and the mobile subagent
+1. Run the backend subagent for S1-B-1, S1-B-2, S1-B-3, S1-B-4, S1-B-5, S1-B-6 and the mobile subagent
    for S1-M-1, S1-M-2, S1-M-3 in parallel. Each works only in its own folder.
 2. When both finish, run the qa subagent for S1-Q-1.
+   Contract 0.2.0 follow-ups (after the above): qa subagent S1-Q-2 (failing tests for vectors 46 and 47), then
+   backend subagent S1-B-7 (Alembic migration 0002, `revoked_reason`), and mobile subagent S1-M-4 (rename the
+   generated client calls to the new operationIds using the table in docs/progress.md).
 3. Then run the reviewer subagent on the full slice diff.
 4. If the reviewer says REQUEST CHANGES, send the findings to the right
    subagent, then re-review. Repeat until APPROVE.
@@ -44,6 +47,8 @@ If the two agents ever need the same file (for example `docker-compose.yml`), ru
 ## Step 3: Each later slice
 
 Replace `N` with the slice number. For slices with money logic (3, 4, 5), keep QA first.
+
+Slice 2 note: run qa S2-Q-2 and S2-Q-3 (failing tests) before backend S2-B-5 and S2-B-7. Slice 3: qa S3-Q-5 before backend S3-B-6 (group timeline). Slice 5: qa S5-Q-3 before backend S5-B-3 (unread count) and S5-B-4 (timeline settlements, friend-removal settlements).
 
 **Slices 2 and 6 (CRUD style):**
 

@@ -204,18 +204,43 @@ Observed (static) as premium-only in the reference app: currency conversion, cha
 - `GET /friends` returns explicit active friends UNION users sharing at least one non-deleted group with the caller (both with `left_at` null), computed at read time using the `group_members (user_id, group_id)` index. A user in both sets appears once.
 - Implicit friends (shared group only) have no row: they cannot be removed and vanish when no shared group remains. A shared group counts only while it is not soft-deleted.
 - `GET /friends/{user_id}` works for any user in the derived list, else 404. `POST /friends` for a user who is already an implicit friend creates the explicit row and returns 201 (an explicit row did not exist); it returns 200 only if an active explicit row exists.
-- Non-group expenses and settlements need the other user to be in the derived friend list at creation (otherwise `422 PARTICIPANT_NOT_MEMBER`). What happens to such items once an implicit friendship ends is open: OQ-37.
+- Non-group expenses and settlements need the other user to be in the derived friend list at creation (otherwise `422 PARTICIPANT_NOT_MEMBER`). What happens to such items once an implicit friendship ends, and whether `POST /friends` on an implicit friend returns 200 or 201, are still open: OQ-37a and OQ-37c (the owner's answers could not be mapped unambiguously; see progress.md 2026-11-09). Until the owner rules, the behaviour above stands.
 
 ### 10.2 Removing a friend (decided 2026-11-07, OQ-32/33)
 `DELETE /friends/{user_id}` evaluates in this order:
 1. The two users share at least one non-deleted group (explicit or implicit friend) -> `409 SHARED_GROUPS_EXIST` with `details.group_ids`. This is the response for an implicit-only friend; it needs no new code or contract change, and the message tells the caller to leave the shared groups first.
 2. No shared group and no active explicit friendship row -> `404 NOT_FOUND` (covers strangers and already-removed friends).
-3. Otherwise -> `204`. The friendship row becomes `removed`, and every non-group expense involving only the two users is soft-deleted, **regardless of any balance**. Removal is never blocked by a non-zero non-group balance (OQ-32); the debt is erased. Group expenses are untouched. (Non-group settlements: OQ-37.)
+3. Otherwise -> `204`. The friendship row becomes `removed`, and every non-group expense **and every non-group settlement** involving only the two users is soft-deleted in the same transaction, **regardless of any balance**. Removal is never blocked by a non-zero non-group balance (OQ-32); the debt is erased. Group expenses and group settlements are untouched. Deleting the settlements as well (decided 2026-11-09, OQ-37b) means no orphan payment is left once the expenses it paid down are gone; if only the settlements were kept, the pair would show a phantom balance in the opposite direction.
 
 The mobile UI must show a confirmation warning before calling DELETE, saying that non-group expenses and any balance with this person will be deleted (screens SCR-20).
 
 ### 10.3 Reminders (decided 2026-11-07, OQ-34)
 `POST /reminders` does **not** check that the recipient owes the sender (in the given scope or at all). Any authenticated sender may remind any permitted recipient. Checks that still apply: the recipient exists and is a friend (derived list) or a co-member of `group_id` if given (else 422 `VALIDATION_ERROR`), the sender is not the recipient, premium gating if adopted (D1), and the rate limit of 1 per (sender, recipient) per 60 seconds (`429 RATE_LIMITED`). The mobile UI still hides the Remind button at a zero balance.
+
+## 11. Auth sessions and rate limits (decided 2026-11-09, OQ-38 and the logout decision)
+
+### 11.1 Refresh-token revocation reasons
+Every revoked `refresh_tokens` row records why (`revoked_reason`, data_model):
+- **Rotation** (`rotated`): `POST /auth/refresh` revokes the presented token and issues a new one.
+- **Logout** (`logout`): `POST /auth/logout` revokes the presented token (only if it is live and the caller's). Other tokens of the user are untouched.
+- **Reuse detection** (`reuse_detected`): presenting a token whose reason is `rotated`, or losing a rotation race (the atomic claim fails), is treated as theft. All of the user's live tokens are revoked with reason `reuse_detected` and the call returns `401 TOKEN_INVALID`.
+- **Password reset** (`password_reset`): a successful reset revokes all of the user's live tokens.
+- **Presenting a token revoked by logout does NOT trigger reuse detection.** It returns `401 TOKEN_INVALID` and revokes nothing else. The same holds for tokens already revoked as `reuse_detected` or `password_reset` (nothing live is left to protect from that token; the user's newer tokens must not be killed by a stale client retry). Rationale: after logout on one device, a stale retry or a duplicate request would otherwise sign out the user's other devices.
+- An expired or unknown token returns `401 TOKEN_INVALID` with no side effect.
+
+### 11.2 Rate limits (OQ-38; owner set the login limit to 5 attempts)
+Counted in a sliding window; a limited call returns `429 RATE_LIMITED`, `details.retry_after_seconds` (whole seconds, at least 1) and a `Retry-After` header with the same value. `retry_after_seconds` is the time until the oldest counted attempt leaves the window.
+| Endpoint | Key | Limit | Window |
+|---|---|---|---|
+| `POST /auth/login` | email, case-folded | 5 failed attempts; the 6th and later attempts return 429, including one with the correct password | 15 minutes |
+| `POST /auth/login` | client IP | 20 failed attempts | 15 minutes |
+| `POST /auth/password-reset` | email, case-folded | 3 requests; the 4th returns 429 | 1 hour |
+- Only failed logins count (wrong password or unknown email, both `INVALID_CREDENTIALS`); a successful login does not reset or count. A different email is unaffected unless the IP limit is hit. An unknown email is counted like a known one, so the response does not reveal whether the account exists.
+- `POST /auth/register` and `POST /auth/refresh` are not rate limited in this version.
+
+## 12. Activity unread count and group timeline (decided 2026-11-09, OQ-36 and OQ-35)
+- **Unread count.** `GET /activity` returns `unread_count` on every page: the number of the caller's `activity_recipients` entries whose `activity_log.created_at` is later than `users.activity_last_read_at` (all entries when it is null). Not capped, not limited by `group_id`, `limit` or `cursor`. `POST /activity/read` sets `activity_last_read_at` to now. `unread_count` equals the number of items with `is_unread = true` across the whole feed. The mobile badge shows `min(count, 99)` and "99+" above 99.
+- **Group timeline.** `GET /groups/{id}/timeline` merges the group's expenses and settlements into one list ordered by date desc (`expense_date`, or `settled_on` for a settlement), then `created_at` desc, then `id` desc. The two kinds interleave in that single order. Deleted items appear only with `include_deleted=true`. Paging is a keyset cursor over the same three keys, so adding or deleting items between pages never duplicates or skips an item that existed at both times.
 
 ## Test vectors (REA: provide at least 15)
 Participants are listed in canonical order. "→" means "pays". Amounts are minor units.
@@ -268,6 +293,12 @@ Participants are listed in canonical order. "→" means "pays". Amounts are mino
 | 43 | Remove implicit-only friend | A and B share group G, no explicit row | DELETE /friends/B -> 409 SHARED_GROUPS_EXIST with `group_ids` [G]; after both leave G (or G is deleted), DELETE -> 404 |
 | 44 | Derived friend list | A in G1 with B, C; explicit friend D; A leaves G1 | before: A's list = {B, C, D}, no `friendships` rows for B or C; after: {D} |
 | 45 | Reminder without debt | A reminds B; B owes A nothing | 202 (no balance check); a second call within 60 s -> 429 RATE_LIMITED |
+| 46 | Logout-revoked token is not reuse | A has devices 1 and 2 (live tokens R1, R2). Device 1 logs out (R1 revoked, reason `logout`). Someone presents R1 to `POST /auth/refresh` | 401 TOKEN_INVALID; R2 still refreshes (200); R2's row is untouched (`revoked_at` null); R1's reason is still `logout` |
+| 47 | Rotated token is reuse | A logs in (R1), refreshes (R1 -> R2, R1 reason `rotated`), then presents R1 again | 401 TOKEN_INVALID; R2 and every other live token of A are revoked with reason `reuse_detected`; another user's tokens are untouched |
+| 48 | Login rate limit | Time frozen, window 900 s. 5 failed logins for `a@x.com` at t = 0, 10, 20, 30, 40 s | the attempt at t = 60 s -> 429 RATE_LIMITED with `retry_after_seconds` = 840 (the oldest counted attempt, t = 0, leaves the window at t = 900) and header `Retry-After: 840`; a correct password at t = 60 s is also 429; limited (429) attempts are not counted; `b@x.com` is unaffected (wrong password -> 401, correct -> 200); at t = 901 s only 4 failures remain in the window, so a correct password -> 200 |
+| 49 | Unread count | A's feed has 62 entries: 60 newer than `activity_last_read_at`, 2 older. `GET /activity?limit=50` (page 1), then page 2 with its cursor, then `GET /activity?group_id=G` where G holds 5 of the 62 | `unread_count` = 60 on page 1, page 2 and the filtered call (not capped, not page-limited, ignores `group_id`); page 1 has 50 items, all `is_unread`; page 2 has 12 items, 10 unread and 2 read; after `POST /activity/read`, `unread_count` = 0 and every `is_unread` is false; one new event by B then gives `unread_count` = 1 |
+| 50 | Group timeline order | Group G: expense E1 (expense_date 2026-11-05, created 10:00), settlement S1 (settled_on 2026-11-05, created 12:00), expense E2 (2026-11-06, created 09:00), settlement S2 (2026-11-04, created 11:00); S1 later soft-deleted | `GET /groups/G/timeline` -> E2, S1, E1, S2 (before the delete); after it: E2, E1, S2, and with `include_deleted=true` E2, S1, E1, S2; `limit=2` -> [E2, S1] with a `next_cursor`, then [E1, S2] with `next_cursor` null; a non-member -> 403 |
+| 51 | Remove friend deletes non-group settlements | A and B are explicit friends, share no group; non-group expense E (A paid 6000, equal A, B) and non-group settlement S (B paid A 1000, `group_id` null), so B now owes A 2000. A third user C has a non-group expense with A and a non-group settlement with B, both untouched by this call. `DELETE /friends/B` | 204; E and S both soft-deleted (`deleted_at` set); the A-B balance is 0 in every currency; C's expense and settlement are not deleted |
 
 Notes for QA:
 - Yearly recurrence anchors on the anchor date: Feb 29 falls back to Feb 28 in non-leap years and returns to Feb 29 in the next leap year (vector 37).

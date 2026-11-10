@@ -67,7 +67,7 @@ erDiagram
 | locale | varchar(10) | no | default `en-IN` |
 | avatar_url | text | yes | object-storage key |
 | notification_prefs | jsonb | no | `{ "expense_added": true, ... }`, the 10 keys of F-38 |
-| activity_last_read_at | timestamptz | yes | drives the unread badge |
+| activity_last_read_at | timestamptz | yes | drives `is_unread` and `ActivityPage.unread_count` (see Derived data); null = nothing read yet; set to now by `POST /activity/read` |
 | friend_code | varchar(16) | no | unique, random; personal add-friend link / QR (F-10) |
 | google_sub | text | yes | unique; V2 |
 | invited_by | uuid | yes | FK → users.id (placeholders) |
@@ -90,7 +90,10 @@ erDiagram
 | token_hash | bytea | no | SHA-256 of the opaque token |
 | device_label | text | yes | |
 | expires_at | timestamptz | no | created + 30 days |
-| revoked_at | timestamptz | yes | rotation: the old token is revoked on each refresh |
+| revoked_at | timestamptz | yes | set when the token stops being usable: rotation on refresh, logout, reuse detection or a password reset |
+| revoked_reason | text | yes | null while live (`revoked_at is null`). Check `revoked_reason in ('rotated','logout','reuse_detected','password_reset')`, and `(revoked_at is null) = (revoked_reason is null)`. Added by Alembic migration 0002 (task S1-B-7); existing revoked rows are backfilled as `rotated` (the only way a token could be revoked before 0002 was rotation, logout or reuse detection, which cannot be told apart afterwards, so the backfill is the conservative choice that keeps reuse detection active for them) |
+
+Reason semantics (business_rules §11): `rotated` = replaced by a refresh; presenting it again is reuse and revokes all of the user's live tokens (those get `reuse_detected`). `logout` = revoked by `POST /auth/logout`; presenting it again returns 401 `TOKEN_INVALID` and changes nothing else. `reuse_detected` = revoked as collateral of a reuse event. `password_reset` = revoked by a successful password reset. Presenting a token whose reason is `reuse_detected`, `password_reset` or `logout` never triggers another revoke-all.
 
 ### idempotency_keys
 Backs the `Idempotency-Key` header on every endpoint that accepts it (POST /friends, /groups, /groups/{id}/expenses, /expenses, /settlements). The unique `(created_by, idempotency_key)` columns on `expenses` and `settlements` stay as a second line of defence against duplicate rows.
@@ -173,7 +176,7 @@ One row per pair (symmetric relationship). **Only explicit friendships are store
 The **friend list** of user U is computed at read time as: explicit friends (`status = 'active'` rows involving U) UNION every user who shares at least one non-deleted group (`groups.deleted_at is null`, both `group_members.left_at is null`) with U. Needs the index `group_members (user_id, group_id)` (partial `where left_at is null`). Consequences:
 - An implicit friend has no `friendships` row, so it cannot be removed. It disappears from the list when the last shared group is deleted or either user leaves it (unless an explicit row also exists).
 - A non-group expense does not create a friendship row. Its users must already be friends (explicit or implicit) when it is created; see business_rules §10 and OQ-37 for what happens after an implicit friendship ends.
-- Removing an explicit friend sets `status = 'removed'` and `removed_at`; if the two still share a group they remain in each other's list via the group, but removal is refused in that case anyway (409 `SHARED_GROUPS_EXIST`).
+- Removing an explicit friend sets `status = 'removed'` and `removed_at` and soft-deletes both the non-group expenses and the non-group settlements involving only the two users (decided 2026-11-09, OQ-37b); if the two still share a group they remain in each other's list via the group, but removal is refused in that case anyway (409 `SHARED_GROUPS_EXIST`).
 
 ### categories
 | Field | Type | Null | Notes |
@@ -400,6 +403,8 @@ All observed extras are covered above: categories, currencies, exchange_rates, r
 - **Per-expense net:** `net(u, e) = paid(u, e) − owed(u, e)`.
 - **Group balance per user per currency:** the sum of nets over non-deleted expenses in the group, plus settlements (from: +amount, to: −amount). Computed by one SQL aggregate (`UNION ALL` of payers (+), splits (−), settlements from (+), settlements to (−)), grouped by user and currency. Index `(group_id) where deleted_at is null` on expenses and settlements keeps it fast. Add a materialised `balances` table only if p95 latency on `GET /groups/{id}/balances` goes over 200 ms with 5000 expenses (**decision**).
 - **Pairwise debts** (simplify off, and for friend balances): see business_rules §4.2.
+- **Unread count** (`ActivityPage.unread_count`, decided 2026-11-09, OQ-36): `select count(*) from activity_recipients r join activity_log a on a.id = r.activity_id where r.user_id = :me and (users.activity_last_read_at is null or a.created_at > users.activity_last_read_at)`. Not stored, not capped (the client caps the badge at "99+"), independent of the `group_id` filter and of paging. An item's `is_unread` uses the same predicate, so `unread_count` equals the number of `is_unread = true` items in the whole feed. Uses the `activity_recipients (user_id, activity_id desc)` index plus `activity_log (created_at)`.
+- **Group timeline** (`GET /groups/{id}/timeline`, decided 2026-11-09, OQ-35): not stored. A read-time merge of the group's `expenses` (key `expense_date`) and `settlements` (key `settled_on`), ordered by key desc, then `created_at` desc, then `id` desc, with a keyset cursor over `(date, created_at, id)`. Deleted rows are filtered by `deleted_at is null` unless `include_deleted`. Needs `settlements (group_id, settled_on desc, created_at desc, id desc) where deleted_at is null` in the settlements migration (S5-B-1) so the merge can read both sides in index order.
 - **`settled_up_since`** (on Friend and GroupSummary): computed on read as the timestamp of the latest non-deleted expense or settlement event after which every balance in the scope is 0, or null if any balance is non-zero or there is no activity. Not stored.
 
 ## Indexes and constraints

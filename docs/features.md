@@ -57,7 +57,8 @@ Abbreviations: "the reference app" = the analysed APK. "Pro" = its paid tier. Ou
 2. Given a wrong password, When login is submitted, Then the API returns 401 with code `INVALID_CREDENTIALS` and the app shows one combined "email or password incorrect" error without saying which one was wrong.
 3. Given an empty email or empty password, When Log in is tapped, Then no request is sent and the empty field is marked.
 4. Given a logged-in user, When they tap Log out on SCR-11 and confirm, Then both tokens are deleted on the device, the refresh token is revoked on the server (a later refresh with it returns 401), and SCR-02 is shown.
-5. Given 5 failed logins for one email within 15 minutes, When a 6th is attempted, Then the API returns 429 for 15 minutes. (**decision**)
+5. Given 5 failed logins for one email within 15 minutes, When a 6th is attempted (even with the correct password), Then the API returns 429 with `retry_after_seconds` until the oldest failure leaves the window. (**owner decision 2026-11-09, OQ-38**; business_rules §11.2)
+6. Given a refresh token revoked by logout, When it is presented to `/auth/refresh`, Then the API returns 401 `TOKEN_INVALID` and the user's other devices stay signed in (business_rules §11.1).
 
 **Evidence:** login fragment, the combined incorrect-credentials error, and the empty-email / empty-password errors observed (static).
 
@@ -177,9 +178,9 @@ Abbreviations: "the reference app" = the analysed APK. "Pro" = its paid tier. Ou
 - **Free or premium:** free
 
 **Acceptance criteria**
-1. Given A and B share 0 groups, When A removes B, Then the friendship is soft-deleted, every non-group expense between only A and B is soft-deleted, and B gets no email or push but sees an activity entry.
+1. Given A and B share 0 groups, When A removes B, Then the friendship is soft-deleted, every non-group expense and every non-group settlement between only A and B is soft-deleted (OQ-37b), and B gets no email or push but sees an activity entry.
 2. Given A and B share 1 group, When A tries to remove B, Then the API returns 409 `SHARED_GROUPS_EXIST` and the app lists the shared group. This also applies when B is a friend only because of the shared group (no stored friendship, OQ-33).
-2a. Given A and B share 0 groups and have a non-zero non-group balance, When A confirms the removal after the warning dialog, Then the API returns 204 and the non-group expenses are deleted; a balance never blocks removal (OQ-32).
+2a. Given A and B share 0 groups and have a non-zero non-group balance, When A confirms the removal after the warning dialog, Then the API returns 204 and the non-group expenses and settlements are deleted; a balance never blocks removal (OQ-32).
 3. (V2) Given A blocks B, When B later adds a non-group expense with A, Then A gets no notification and the expense is hidden from A's feeds.
 
 **Evidence:** friendship-settings layout with a shared-groups list, "cannot delete friend while in shared groups" text, the remove explanation (non-group expenses deleted, they see it in activity, no email or push) and the block explanation observed (static).
