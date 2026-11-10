@@ -1459,6 +1459,7 @@ export const getListFriendsUrl = (params?: ListFriendsParams) => {
 };
 
 /**
+ * Returns explicit active friends plus every user who currently shares a non-deleted group with the caller, each once. When the last shared non-deleted group of a pair ends (a member leaves or is removed, or the group is deleted), the pair becomes explicit friends in the same transaction, so a former co-member does not disappear from this list (decided 2026-11-10, OQ-37a). Restoring a group does not undo that.
  * @summary List friends with balances
  */
 export const listFriends = async (
@@ -1641,7 +1642,7 @@ export const getAddFriendUrl = () => {
 };
 
 /**
- * Creates a placeholder user and queues an invite if the person is not registered. Idempotent if already friends (returns 200). "Already friends" means an active explicit friendship row exists. A person who is only an implicit friend (shares a non-deleted group, no explicit row) is not yet an explicit friend, so the call creates the explicit row and returns 201 (open_questions OQ-37c, awaiting owner confirmation).
+ * Creates a placeholder user and queues an invite if the person is not registered. Idempotent if already friends (returns 200). "Already friends" means an active explicit friendship row exists. A person who is only an implicit friend (shares a non-deleted group, no explicit row) is not yet an explicit friend, so the call creates the explicit row and returns 201 (decided 2026-11-10, OQ-37c). A person who shared a group that has since ended is already an explicit friend (see GET /friends), so the call returns 200.
  * @summary Add a friend by email, phone or personal code
  */
 export const addFriend = async (
@@ -1952,7 +1953,7 @@ export const getRemoveFriendUrl = (userId: string) => {
 };
 
 /**
- * Fails with 409 SHARED_GROUPS_EXIST while the two users share any non-deleted group (this includes friends who exist only through a shared group; they have no stored friendship). Otherwise soft-deletes the non-group expenses AND the non-group settlements involving only the two users, regardless of any balance, and returns 204. Returns 404 when there is no shared group and no active explicit friendship.
+ * Fails with 409 SHARED_GROUPS_EXIST while the two users share any non-deleted group (this includes friends who exist only through a shared group; they have no stored friendship yet). This check comes first, even when an active explicit friendship exists. Once no group is shared, a former co-member has an explicit friendship (written when the last shared group ended) and can be removed. Otherwise soft-deletes the non-group expenses AND the non-group settlements involving only the two users, regardless of any balance, and returns 204. Returns 404 when there is no shared group and no active explicit friendship.
  * @summary Remove a friend
  */
 export const removeFriend = async (
@@ -2848,6 +2849,7 @@ export const getDeleteGroupUrl = (id: string) => {
 };
 
 /**
+ * In the same transaction, every pair of current members that no longer shares another non-deleted group becomes explicit friends (no activity entry, no notification), so members stay in each other's friend list (decided 2026-11-10, OQ-37a). A 409 ALREADY_DELETED writes nothing.
  * @summary Delete a group for all members (soft delete)
  */
 export const deleteGroup = async (
@@ -2959,6 +2961,7 @@ export const getRestoreGroupUrl = (id: string) => {
 };
 
 /**
+ * Does not remove the explicit friendships written when the group was deleted (OQ-37a).
  * @summary Restore a deleted group (V2)
  */
 export const restoreGroup = async (
@@ -3225,7 +3228,7 @@ export const getRemoveGroupMemberUrl = (id: string, userId: string) => {
 };
 
 /**
- * Fails with 409 OUTSTANDING_BALANCE if the member's balance in this group is non-zero in any currency.
+ * Fails with 409 OUTSTANDING_BALANCE if the member's balance in this group is non-zero in any currency. On success, in the same transaction, the departing member and every remaining member who no longer share another non-deleted group become explicit friends (no activity entry, no notification), so they stay in each other's friend list (decided 2026-11-10, OQ-37a). A refused call writes nothing.
  * @summary Remove a member, or leave the group with user_id = me
  */
 export const removeGroupMember = async (

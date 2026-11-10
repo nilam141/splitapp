@@ -1,6 +1,10 @@
 import type { QueryClient } from '@tanstack/react-query';
 import type { Error as ApiError } from './generated/model';
-import { getListFriendsUrl, getListGroupsUrl } from './generated/splitapp';
+import {
+  getListExpensesUrl,
+  getListFriendsUrl,
+  getListGroupsUrl,
+} from './generated/splitapp';
 
 type Result = { status: number; data?: unknown };
 
@@ -52,3 +56,7 @@ export const invalidateFriends = (qc: QueryClient) =>
 /** listGroups, getGroup and everything under /groups/{id}. */
 export const invalidateGroups = (qc: QueryClient) =>
   startsWithUrl(qc, getListGroupsUrl());
+
+/** listExpenses, getExpense and its comments (everything under /expenses). */
+export const invalidateExpenses = (qc: QueryClient) =>
+  startsWithUrl(qc, getListExpensesUrl().split('?')[0]);

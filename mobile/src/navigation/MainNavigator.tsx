@@ -6,6 +6,10 @@ import { AddPeopleScreen } from '../screens/AddPeopleScreen';
 import { CreateGroupScreen } from '../screens/CreateGroupScreen';
 import { GroupDetailScreen } from '../screens/GroupDetailScreen';
 import { GroupSettingsScreen } from '../screens/GroupSettingsScreen';
+import { ExpenseFormScreen } from '../screens/ExpenseFormScreen';
+import { ExpenseDetailScreen } from '../screens/ExpenseDetailScreen';
+import { FriendDetailScreen } from '../screens/FriendDetailScreen';
+import { FriendSettingsScreen } from '../screens/FriendSettingsScreen';
 
 const Stack = createNativeStackNavigator<MainStackParamList>();
 
@@ -37,6 +41,26 @@ export function MainNavigator() {
         name="GroupSettings"
         component={GroupSettingsScreen}
         options={{ title: 'Group settings' }}
+      />
+      <Stack.Screen
+        name="ExpenseForm"
+        component={ExpenseFormScreen}
+        options={{ title: 'Add expense' }}
+      />
+      <Stack.Screen
+        name="ExpenseDetail"
+        component={ExpenseDetailScreen}
+        options={{ title: 'Expense' }}
+      />
+      <Stack.Screen
+        name="FriendDetail"
+        component={FriendDetailScreen}
+        options={{ title: 'Friend' }}
+      />
+      <Stack.Screen
+        name="FriendSettings"
+        component={FriendSettingsScreen}
+        options={{ title: 'Friend settings' }}
       />
     </Stack.Navigator>
   );

@@ -16,6 +16,7 @@ type Props = {
   selected: string;
   onSelect: (code: string) => void;
   onClose: () => void;
+  title?: string;
 };
 
 // Modal picker backed by GET /currencies (loading, empty, error + retry states).
@@ -24,6 +25,7 @@ export function CurrencyPicker({
   selected,
   onSelect,
   onClose,
+  title = 'Default currency',
 }: Props) {
   const query = useListCurrencies({
     query: { enabled: visible, staleTime: 24 * 60 * 60 * 1000 },
@@ -70,7 +72,7 @@ export function CurrencyPicker({
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.container}>
         <Text accessibilityRole="header" style={styles.title}>
-          Default currency
+          {title}
         </Text>
         {body}
         <Button title="Cancel" onPress={onClose} />

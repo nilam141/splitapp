@@ -210,8 +210,9 @@ def test_vector_55_remove_member_materializes_and_refused_removal_writes_nothing
     _assert_only_normal_activity(db_session, before, ["group.member_removed"])
 
 
-@pytest.mark.skip(reason="needs real group balances: S4-B-3 replaces the stubbed guard; expenses/settlements come in "
-                         "S3/S5. The 409-writes-nothing half is covered above through the stub.")
+@pytest.mark.skip(reason="waits for S4-B-3 (real group balances replace the stubbed guard `member_balances`). Group "
+                         "expenses exist since S3, but B's debt only blocks removal once the guard reads them. The "
+                         "409-writes-nothing half is covered above through the stub.")
 def test_vector_55_with_real_debt_after_s4_b_3():
     raise AssertionError("write once expenses and the real balance guard exist")
 
@@ -337,11 +338,46 @@ def test_vector_59_friend_survives_group_delete_and_post_friends_is_200(client, 
     assert len(_rows(db_session)) == 1
 
 
-@pytest.mark.skip(reason="non-group expenses are not implemented (S3-B-*) and the friend balance is [] until S4; the "
-                         "list / GET / POST 200 half of vector 59 is covered above. Add: A pays 6000 equal A,B; "
-                         "A deletes G; GET /friends/B shows 3000 INR owed to A; the expense is not deleted.")
-def test_vector_59_non_group_balance_survives_after_s3_s4():
-    raise AssertionError("write once expenses and friend balances exist")
+def test_vector_59_non_group_expense_survives_group_delete(client, db_session):
+    """Half of vector 59 that needs no balances: E (A paid 6000, equal A,B) is untouched by deleting G."""
+    from tests.expense_helpers import create_expense, equal_body
+
+    a, b = _user(client, "Asha"), _user(client, "Ravi")
+    g = _group(client, a, [b])
+    e = create_expense(client, a, {**equal_body(a, [a, b], total=6000, description="Taxi"), "group_id": None})
+    assert e["group_id"] is None and e["total"]["amount_minor"] == 6000
+    assert client.delete(f"/groups/{g}", headers=_h(a)).status_code == 204
+
+    # E is not deleted: readable by both participants, still non-group, unchanged version
+    for who in (a, b):
+        r = client.get(f"/expenses/{e['id']}", headers=_h(who))
+        assert r.status_code == 200, r.text
+        got = r.json()
+        assert got["id"] == e["id"] and got["group_id"] is None and got["total"]["amount_minor"] == 6000
+        assert got["version"] == e["version"]
+        assert got.get("deleted_at") is None
+
+    # A's non-group list for B shows E (also via the friend filter), and B sees it too
+    for who, other in ((a, b), (b, a)):
+        r = client.get("/expenses", params={"non_group": "true"}, headers=_h(who))
+        assert r.status_code == 200, r.text
+        assert [i["id"] for i in r.json()["items"]] == [e["id"]]
+        r = client.get("/expenses", params={"friend_user_id": _uid(other), "non_group": "true"}, headers=_h(who))
+        assert r.status_code == 200, r.text
+        assert [i["id"] for i in r.json()["items"]] == [e["id"]]
+
+    # friendship materialized (A-B), listed, and POST /friends is now 200, not 201
+    assert _rows(db_session) == {_key(a, b): "active"}
+    assert _friend_ids(client, a) == {_uid(b)}
+    assert client.get(f"/friends/{_uid(b)}", headers=_h(a)).status_code == 200
+    assert client.post("/friends", json={"email": "ravi@example.com"}, headers=_h(a)).status_code == 200
+
+
+@pytest.mark.skip(reason="waits for S4 friend balances: GET /friends/{id} still returns balances=[] and breakdown=[] "
+                         "(services_friends). Add: after A deletes G, GET /friends/B shows a non_group breakdown line "
+                         "of 3000 INR (B owes A) for E (A paid 6000, equal A,B).")
+def test_vector_59_non_group_balance_3000_after_s4():
+    raise AssertionError("write once friend balances exist (S4)")
 
 
 # ---- vector 60 -----------------------------------------------------------------------------------------------------

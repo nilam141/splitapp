@@ -106,10 +106,17 @@ export function FriendsScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <View style={styles.row}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Friend: ${item.user.name}`}
+            onPress={() =>
+              nav.navigate('FriendDetail', { friendId: item.user.id })
+            }
+            style={styles.row}
+          >
             <Text style={styles.name}>{item.user.name}</Text>
             <BalanceLines lines={item.balances} />
-          </View>
+          </Pressable>
         )}
         ListFooterComponent={
           collapsed.length > 0 && !showSettled ? (

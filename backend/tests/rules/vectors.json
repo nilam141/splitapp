@@ -1,0 +1,753 @@
+{
+ "source": "docs/business_rules.md test vectors 1-18, 13b, 34 (canonical order = list order). Reused by mobile S3-M-2.",
+ "vectors": [
+  {
+   "id": "1",
+   "scenario": "Equal split, remainder",
+   "kind": "split",
+   "split_type": "equal",
+   "total": 10000,
+   "entries": [
+    [
+     "A",
+     null
+    ],
+    [
+     "B",
+     null
+    ],
+    [
+     "C",
+     null
+    ]
+   ],
+   "expected": {
+    "owed": [
+     [
+      "A",
+      3334
+     ],
+     [
+      "B",
+      3333
+     ],
+     [
+      "C",
+      3333
+     ]
+    ]
+   }
+  },
+  {
+   "id": "2",
+   "scenario": "Equal, small remainder",
+   "kind": "split",
+   "split_type": "equal",
+   "total": 100,
+   "entries": [
+    [
+     "A",
+     null
+    ],
+    [
+     "B",
+     null
+    ],
+    [
+     "C",
+     null
+    ]
+   ],
+   "expected": {
+    "owed": [
+     [
+      "A",
+      34
+     ],
+     [
+      "B",
+      33
+     ],
+     [
+      "C",
+      33
+     ]
+    ]
+   }
+  },
+  {
+   "id": "3",
+   "scenario": "Equal, odd over 2",
+   "kind": "split",
+   "split_type": "equal",
+   "total": 10001,
+   "entries": [
+    [
+     "A",
+     null
+    ],
+    [
+     "B",
+     null
+    ]
+   ],
+   "expected": {
+    "owed": [
+     [
+      "A",
+      5001
+     ],
+     [
+      "B",
+      5000
+     ]
+    ]
+   }
+  },
+  {
+   "id": "4",
+   "scenario": "Equal, JPY (exp 0)",
+   "kind": "split",
+   "split_type": "equal",
+   "total": 1000,
+   "entries": [
+    [
+     "A",
+     null
+    ],
+    [
+     "B",
+     null
+    ],
+    [
+     "C",
+     null
+    ]
+   ],
+   "expected": {
+    "owed": [
+     [
+      "A",
+      334
+     ],
+     [
+      "B",
+      333
+     ],
+     [
+      "C",
+      333
+     ]
+    ]
+   }
+  },
+  {
+   "id": "5",
+   "scenario": "Payer not in split",
+   "kind": "expense",
+   "split_type": "equal",
+   "total": 9000,
+   "payers": [
+    [
+     "A",
+     9000
+    ]
+   ],
+   "entries": [
+    [
+     "B",
+     null
+    ],
+    [
+     "C",
+     null
+    ]
+   ],
+   "expected": {
+    "owed": [
+     [
+      "B",
+      4500
+     ],
+     [
+      "C",
+      4500
+     ]
+    ],
+    "nets": {
+     "A": 9000,
+     "B": -4500,
+     "C": -4500
+    }
+   }
+  },
+  {
+   "id": "6",
+   "scenario": "Exact, valid",
+   "kind": "split",
+   "split_type": "exact",
+   "total": 10000,
+   "entries": [
+    [
+     "A",
+     5000
+    ],
+    [
+     "B",
+     3000
+    ],
+    [
+     "C",
+     2000
+    ]
+   ],
+   "expected": {
+    "owed": [
+     [
+      "A",
+      5000
+     ],
+     [
+      "B",
+      3000
+     ],
+     [
+      "C",
+      2000
+     ]
+    ]
+   }
+  },
+  {
+   "id": "7",
+   "scenario": "Exact, under",
+   "kind": "split",
+   "split_type": "exact",
+   "total": 10000,
+   "entries": [
+    [
+     "A",
+     5000
+    ],
+    [
+     "B",
+     3000
+    ],
+    [
+     "C",
+     1000
+    ]
+   ],
+   "expected": {
+    "error": {
+     "code": "SPLIT_SUM_MISMATCH",
+     "details": {
+      "expected": 10000,
+      "actual": 9000,
+      "difference": -1000
+     }
+    }
+   }
+  },
+  {
+   "id": "8",
+   "scenario": "Percent, exact divide",
+   "kind": "split",
+   "split_type": "percent",
+   "total": 10000,
+   "entries": [
+    [
+     "A",
+     3333
+    ],
+    [
+     "B",
+     3333
+    ],
+    [
+     "C",
+     3334
+    ]
+   ],
+   "expected": {
+    "owed": [
+     [
+      "A",
+      3333
+     ],
+     [
+      "B",
+      3333
+     ],
+     [
+      "C",
+      3334
+     ]
+    ]
+   }
+  },
+  {
+   "id": "9",
+   "scenario": "Percent, remainder",
+   "kind": "split",
+   "split_type": "percent",
+   "total": 1000,
+   "entries": [
+    [
+     "A",
+     3333
+    ],
+    [
+     "B",
+     3333
+    ],
+    [
+     "C",
+     3334
+    ]
+   ],
+   "expected": {
+    "owed": [
+     [
+      "A",
+      333
+     ],
+     [
+      "B",
+      333
+     ],
+     [
+      "C",
+      334
+     ]
+    ]
+   }
+  },
+  {
+   "id": "10",
+   "scenario": "Percent, not 100",
+   "kind": "split",
+   "split_type": "percent",
+   "total": 10000,
+   "entries": [
+    [
+     "A",
+     5000
+    ],
+    [
+     "B",
+     4900
+    ]
+   ],
+   "expected": {
+    "error": {
+     "code": "SPLIT_PERCENT_MISMATCH",
+     "details": {
+      "difference_bp": -100
+     }
+    }
+   }
+  },
+  {
+   "id": "11",
+   "scenario": "Shares",
+   "kind": "split",
+   "split_type": "shares",
+   "total": 10000,
+   "entries": [
+    [
+     "A",
+     1
+    ],
+    [
+     "B",
+     2
+    ],
+    [
+     "C",
+     2
+    ]
+   ],
+   "expected": {
+    "owed": [
+     [
+      "A",
+      2000
+     ],
+     [
+      "B",
+      4000
+     ],
+     [
+      "C",
+      4000
+     ]
+    ]
+   }
+  },
+  {
+   "id": "12",
+   "scenario": "Shares, all equal, remainder",
+   "kind": "split",
+   "split_type": "shares",
+   "total": 1000,
+   "entries": [
+    [
+     "A",
+     1
+    ],
+    [
+     "B",
+     1
+    ],
+    [
+     "C",
+     1
+    ]
+   ],
+   "expected": {
+    "owed": [
+     [
+      "A",
+      334
+     ],
+     [
+      "B",
+      333
+     ],
+     [
+      "C",
+      333
+     ]
+    ]
+   }
+  },
+  {
+   "id": "13",
+   "scenario": "Shares, fractional remainder",
+   "kind": "split",
+   "split_type": "shares",
+   "total": 10000,
+   "entries": [
+    [
+     "A",
+     2
+    ],
+    [
+     "B",
+     1
+    ]
+   ],
+   "expected": {
+    "owed": [
+     [
+      "A",
+      6667
+     ],
+     [
+      "B",
+      3333
+     ]
+    ]
+   }
+  },
+  {
+   "id": "13b",
+   "scenario": "Shares, 7-way tie",
+   "kind": "split",
+   "split_type": "shares",
+   "total": 100,
+   "entries": [
+    [
+     "A",
+     1
+    ],
+    [
+     "B",
+     1
+    ],
+    [
+     "C",
+     1
+    ],
+    [
+     "D",
+     1
+    ],
+    [
+     "E",
+     1
+    ],
+    [
+     "F",
+     1
+    ],
+    [
+     "G",
+     1
+    ]
+   ],
+   "expected": {
+    "owed": [
+     [
+      "A",
+      15
+     ],
+     [
+      "B",
+      15
+     ],
+     [
+      "C",
+      14
+     ],
+     [
+      "D",
+      14
+     ],
+     [
+      "E",
+      14
+     ],
+     [
+      "F",
+      14
+     ],
+     [
+      "G",
+      14
+     ]
+    ]
+   }
+  },
+  {
+   "id": "14",
+   "scenario": "Adjustment",
+   "kind": "split",
+   "split_type": "adjustment",
+   "total": 10000,
+   "entries": [
+    [
+     "A",
+     1000
+    ],
+    [
+     "B",
+     0
+    ],
+    [
+     "C",
+     0
+    ]
+   ],
+   "expected": {
+    "owed": [
+     [
+      "A",
+      4000
+     ],
+     [
+      "B",
+      3000
+     ],
+     [
+      "C",
+      3000
+     ]
+    ]
+   }
+  },
+  {
+   "id": "15",
+   "scenario": "Adjustment exceeds",
+   "kind": "split",
+   "split_type": "adjustment",
+   "total": 10000,
+   "entries": [
+    [
+     "A",
+     6000
+    ],
+    [
+     "B",
+     5000
+    ],
+    [
+     "C",
+     0
+    ]
+   ],
+   "expected": {
+    "error": {
+     "code": "SPLIT_ADJUSTMENT_EXCEEDS_TOTAL",
+     "details": {
+      "expected": 10000,
+      "actual": 11000,
+      "difference": 1000
+     }
+    }
+   }
+  },
+  {
+   "id": "16",
+   "scenario": "Adjustment, remainder",
+   "kind": "split",
+   "split_type": "adjustment",
+   "total": 10001,
+   "entries": [
+    [
+     "A",
+     1000
+    ],
+    [
+     "B",
+     0
+    ],
+    [
+     "C",
+     0
+    ]
+   ],
+   "expected": {
+    "owed": [
+     [
+      "A",
+      4001
+     ],
+     [
+      "B",
+      3000
+     ],
+     [
+      "C",
+      3000
+     ]
+    ]
+   }
+  },
+  {
+   "id": "17",
+   "scenario": "Multiple payers",
+   "kind": "expense",
+   "split_type": "equal",
+   "total": 9000,
+   "payers": [
+    [
+     "A",
+     6000
+    ],
+    [
+     "B",
+     3000
+    ]
+   ],
+   "entries": [
+    [
+     "A",
+     null
+    ],
+    [
+     "B",
+     null
+    ],
+    [
+     "C",
+     null
+    ]
+   ],
+   "expected": {
+    "owed": [
+     [
+      "A",
+      3000
+     ],
+     [
+      "B",
+      3000
+     ],
+     [
+      "C",
+      3000
+     ]
+    ],
+    "nets": {
+     "A": 3000,
+     "B": 0,
+     "C": -3000
+    }
+   }
+  },
+  {
+   "id": "18",
+   "scenario": "Payers mismatch",
+   "kind": "expense",
+   "split_type": "equal",
+   "total": 9000,
+   "payers": [
+    [
+     "A",
+     6000
+    ],
+    [
+     "B",
+     2000
+    ]
+   ],
+   "entries": [
+    [
+     "A",
+     null
+    ],
+    [
+     "B",
+     null
+    ],
+    [
+     "C",
+     null
+    ]
+   ],
+   "expected": {
+    "error": {
+     "code": "PAYER_SUM_MISMATCH",
+     "details": {
+      "expected": 9000,
+      "actual": 8000,
+      "difference": -1000
+     }
+    }
+   }
+  },
+  {
+   "id": "34a",
+   "scenario": "Amount bounds",
+   "kind": "bounds",
+   "total": 0,
+   "expected": {
+    "error": {
+     "code": "AMOUNT_OUT_OF_RANGE"
+    }
+   }
+  },
+  {
+   "id": "34b",
+   "scenario": "Amount bounds",
+   "kind": "bounds",
+   "total": 9999999999,
+   "expected": {
+    "ok": true
+   }
+  },
+  {
+   "id": "34c",
+   "scenario": "Amount bounds",
+   "kind": "bounds",
+   "total": 10000000000,
+   "expected": {
+    "error": {
+     "code": "AMOUNT_OUT_OF_RANGE"
+    }
+   }
+  }
+ ]
+}

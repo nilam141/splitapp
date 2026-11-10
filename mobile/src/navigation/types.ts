@@ -26,6 +26,11 @@ export type MainStackParamList = {
   CreateGroup: { picked?: PersonDraft[] } | undefined;
   GroupDetail: { groupId: string };
   GroupSettings: { groupId: string };
+  /** SCR-22: add (groupId or friendId gives the context) or edit (expenseId). */
+  ExpenseForm: { groupId?: string; friendId?: string; expenseId?: string };
+  ExpenseDetail: { expenseId: string };
+  FriendDetail: { friendId: string };
+  FriendSettings: { friendId: string };
 };
 
 export type RootStackParamList = {

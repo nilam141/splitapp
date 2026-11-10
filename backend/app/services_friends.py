@@ -5,13 +5,13 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, union, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import activity, idempotency, outbox, security
 from app.errors import ApiError
-from app.models import Friendship, Group, GroupMember, User
+from app.models import Expense, ExpensePayer, ExpenseSplit, Friendship, Group, GroupMember, User
 from app.schemas import Friend, FriendCreate, FriendCreated, UserPublic
 from app.services_auth import NOTIFICATION_KEYS
 
@@ -109,9 +109,24 @@ def get_friend(db: Session, me: User, other_id: uuid.UUID) -> Friend:
     return friend_out(user)
 
 
+def _soft_delete_pair_expenses(db: Session, a: uuid.UUID, b: uuid.UUID, actor: uuid.UUID, now: datetime) -> None:
+    """Soft-delete every live non-group expense whose payers and participants are exactly {a, b} (OQ-32): both are on
+    it and nobody else is. Group expenses and expenses with a third person are untouched."""
+    inv = union(select(ExpensePayer.expense_id.label("expense_id"), ExpensePayer.user_id.label("user_id")),
+                select(ExpenseSplit.expense_id, ExpenseSplit.user_id)).subquery()
+    ids = select(Expense.id).where(
+        Expense.group_id.is_(None), Expense.deleted_at.is_(None),
+        Expense.id.in_(select(inv.c.expense_id).where(inv.c.user_id == a)),
+        Expense.id.in_(select(inv.c.expense_id).where(inv.c.user_id == b)),
+        Expense.id.not_in(select(inv.c.expense_id).where(inv.c.user_id.not_in([a, b]))))
+    db.execute(update(Expense).where(Expense.id.in_(ids)).values(
+        deleted_at=now, deleted_by=actor, version=Expense.version + 1, updated_at=now))
+
+
 def remove_friend(db: Session, me: User, other_id: uuid.UUID) -> None:
     """business_rules 10.2: a shared live group blocks removal (409, even with an explicit row); otherwise the
-    explicit row becomes removed. Non-group expense and settlement soft-delete arrives with S3-B-4 / S5-B-4."""
+    explicit row becomes removed and the pair's non-group expenses are soft-deleted in the same transaction,
+    whatever the balance (OQ-32). Non-group settlements follow with S5-B-4."""
     if other_id == me.id:
         raise ApiError(404, "NOT_FOUND", "Friend not found")
     shared = shared_group_ids(db, me.id, other_id)
@@ -122,9 +137,11 @@ def remove_friend(db: Session, me: User, other_id: uuid.UUID) -> None:
     if other is None or other.deleted_at is not None or not _explicit_active(db, me, other_id):
         raise ApiError(404, "NOT_FOUND", "Friend not found")
     row = db.get(Friendship, pair(me.id, other_id))
+    now = _now()
     row.status = "removed"
-    row.removed_at = _now()
-    row.updated_at = _now()
+    row.removed_at = now
+    row.updated_at = now
+    _soft_delete_pair_expenses(db, me.id, other_id, me.id, now)
     activity.record(db, me.id, "friend.removed", "friendship", other_id, None,
                     {"friend_id": str(other_id), "friend_name": other.name, "actor_name": me.name},
                     [me.id, other_id])
