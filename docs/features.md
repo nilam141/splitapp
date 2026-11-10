@@ -134,6 +134,7 @@ Abbreviations: "the reference app" = the analysed APK. "Pro" = its paid tier. Ou
 2. Given a friend's balance has been 0 in every currency for more than 30 days, When SCR-08 opens, Then that friend is hidden behind a "show N settled-up friends" row, and tapping it reveals them.
 3. Given the filter "friends who owe you" is chosen, When the list renders, Then only friends with a positive balance for the user are shown, and a "no friends owe you" empty state appears if there are none.
 4. Given a friend has balances in 2 currencies (500 INR owed to the user, 10 USD owed by the user), When the row renders, Then both amounts are listed separately and never summed.
+5. Given A and B were friends only through group G, When G ends for them (either leaves, one removes the other, or G is deleted) and they share no other group, Then B stays in A's list (and A in B's) with the same non-group balance, as an explicit friend (OQ-37a, business_rules §10.1a).
 
 **Evidence:** friends-list layout, balance-filter options layout (all / outstanding / owe you / you owe), the "hiding friends settled up over one month" text and "show N settled-up friends" row observed (static). Exact 1-month rule: OQ-08.
 
@@ -181,6 +182,8 @@ Abbreviations: "the reference app" = the analysed APK. "Pro" = its paid tier. Ou
 1. Given A and B share 0 groups, When A removes B, Then the friendship is soft-deleted, every non-group expense and every non-group settlement between only A and B is soft-deleted (OQ-37b), and B gets no email or push but sees an activity entry.
 2. Given A and B share 1 group, When A tries to remove B, Then the API returns 409 `SHARED_GROUPS_EXIST` and the app lists the shared group. This also applies when B is a friend only because of the shared group (no stored friendship, OQ-33).
 2a. Given A and B share 0 groups and have a non-zero non-group balance, When A confirms the removal after the warning dialog, Then the API returns 204 and the non-group expenses and settlements are deleted; a balance never blocks removal (OQ-32).
+2b. Given A and B were friends only through group G and G has ended for them (OQ-37a), When A opens B, Then B is an explicit friend and A can remove B (204, subject to AC1 and AC2a); if they share another group, 409 `SHARED_GROUPS_EXIST` applies first, even if an explicit friendship exists.
+2c. Given A and B share group G with no explicit friendship, When A adds B with `POST /friends`, Then the API returns 201 and creates the explicit friendship; a repeat returns 200 (OQ-37c).
 3. (V2) Given A blocks B, When B later adds a non-group expense with A, Then A gets no notification and the expense is hidden from A's feeds.
 
 **Evidence:** friendship-settings layout with a shared-groups list, "cannot delete friend while in shared groups" text, the remove explanation (non-group expenses deleted, they see it in activity, no email or push) and the block explanation observed (static).
@@ -244,6 +247,7 @@ Abbreviations: "the reference app" = the analysed APK. "Pro" = its paid tier. Ou
 2. Given Ravi's balance in G is -1 paise (owes 1 paise), When anyone tries to remove him, Then the API returns 409 `OUTSTANDING_BALANCE` and the app explains the debts must be settled first.
 3. Given the user's own balance is +2500 paise, When they tap Leave group, Then the API returns 409 `OUTSTANDING_BALANCE`.
 4. Given an expense includes a member who has left, When anyone tries to edit it, Then the API returns 409 `EXPENSE_HAS_DEPARTED_MEMBER`. Deleting it is still allowed.
+5. Given Ravi leaves G (or is removed) and he and member Meera share no other group, When the call succeeds, Then in the same transaction they become explicit friends (one `active` friendship, no activity entry, no notification) and each stays in the other's friend list; a pair that still shares another group is unchanged. A refused call (409) changes nothing (OQ-37a, business_rules §10.1a).
 
 **Evidence:** "can't leave/remove with outstanding debts" alerts and the "expense involves someone who left, can no longer be edited" error observed (static).
 
@@ -257,6 +261,7 @@ Abbreviations: "the reference app" = the analysed APK. "Pro" = its paid tier. Ou
 
 **Acceptance criteria**
 1. Given group G with 3 members, When a member deletes G and confirms twice, Then `groups.deleted_at` is set, G disappears for all 3 members, and its expenses no longer count in any balance.
+1a. Given G is deleted, When the call succeeds, Then every pair of its members that shares no other non-deleted group becomes explicit friends in the same transaction (no activity entry, no notification), so nobody vanishes from anyone's friend list (OQ-37a, business_rules §10.1a).
 2. (V2) Given G was deleted, When a former member restores it from the activity entry, Then `deleted_at` is cleared and every balance is exactly what it was before the delete.
 
 **Evidence:** "absolutely sure, removes for ALL users" confirmation and an undelete-group action observed (static).

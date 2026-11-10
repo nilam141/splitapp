@@ -428,8 +428,8 @@ graph TD
 | Default split (personal) | row | – | V2, F-27 |
 | Whiteboard | row | – | → SCR-41 (Later) |
 | Premium section | settle-up reminders, balance alert, convert currency, export | – | gated |
-| Leave group | destructive | – | refused if the balance ≠ 0 |
-| Delete group | destructive | – | 2-step confirmation |
+| Leave group | destructive | – | refused if the balance ≠ 0. After a successful leave the other members stay in the user's friend list (OQ-37a); optional one-line hint in the confirm dialog: "You will stay friends with the other members." |
+| Delete group | destructive | – | 2-step confirmation. Members stay in each other's friend lists (OQ-37a); optional hint in the second step: "Members stay on your friends list." After a leave or delete the client invalidates the friends query (`listFriends`, `getFriend`) |
 
 **Actions**
 | Action | Result | Navigates to |
@@ -573,7 +573,7 @@ graph TD
 | Element | Type | Required | Validation / notes |
 |---|---|---|---|
 | Shared groups | list | – | tap → SCR-13 |
-| Remove friend | destructive | – | refused while there are shared groups (so always refused for a friend who exists only through a shared group, OQ-33). **Never blocked by a balance (OQ-32):** the confirmation dialog must warn that non-group expenses, non-group payments and any balance with this person will be deleted (OQ-37b), showing the current non-group balance if non-zero |
+| Remove friend | destructive | – | refused while there are shared groups, even if an explicit friendship exists; the 409 dialog lists the groups and says to leave them first. Once the last shared group has ended the person is an explicit friend and removal is allowed (OQ-33, OQ-37a). The app never needs to tell the user a friend was kept: no toast or notice is shown when a group ends. **Never blocked by a balance (OQ-32):** the confirmation dialog must warn that non-group expenses, non-group payments and any balance with this person will be deleted (OQ-37b), showing the current non-group balance if non-zero |
 | Block | destructive | – | V2 |
 | Convert non-group to default currency | row | – | Later, gated |
 

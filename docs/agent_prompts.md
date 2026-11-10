@@ -48,7 +48,7 @@ If the two agents ever need the same file (for example `docker-compose.yml`), ru
 
 Replace `N` with the slice number. For slices with money logic (3, 4, 5), keep QA first.
 
-Slice 2 note: run qa S2-Q-2 and S2-Q-3 (failing tests) before backend S2-B-5 and S2-B-7. Slice 3: qa S3-Q-5 before backend S3-B-6 (group timeline). Slice 5: qa S5-Q-3 before backend S5-B-3 (unread count) and S5-B-4 (timeline settlements, friend-removal settlements).
+Slice 2 note: run qa S2-Q-2 and S2-Q-3 (failing tests) before backend S2-B-5 and S2-B-7; run qa S2-Q-4 before backend S2-B-8 (keep friends when a shared group ends, after S2-B-5). Slice 3: qa S3-Q-5 before backend S3-B-6 (group timeline). Slice 5: qa S5-Q-3 before backend S5-B-3 (unread count) and S5-B-4 (timeline settlements, friend-removal settlements).
 
 **Slices 2 and 6 (CRUD style):**
 

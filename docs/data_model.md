@@ -171,11 +171,12 @@ Backs the `Idempotency-Key` header on every endpoint that accepts it (POST /frie
 | created_at | timestamptz | no | |
 | removed_at | timestamptz | yes | |
 
-One row per pair (symmetric relationship). **Only explicit friendships are stored** (added by friend code, email, phone or personal link). **Decided 2026-11-07 (OQ-33):** implicit friendships are never stored, because a 200-member group would need 19,900 rows.
+One row per pair (symmetric relationship), unique on `(user_id, friend_id)` (the primary key). Rows are written for explicit friendships (friend code, email, phone or personal link) **and** by materialization when the last shared group of a pair ends (below). **Decided 2026-11-07 (OQ-33):** implicit friendships are not stored while a group is live, because a 200-member group would need 19,900 rows. **Decided 2026-11-10 (OQ-37a):** when a pair loses its last shared non-deleted group (member leaves, member removed, group soft-deleted) the pair is written as an `active` row in the same transaction, so ex-co-members stay in the list.
 
 The **friend list** of user U is computed at read time as: explicit friends (`status = 'active'` rows involving U) UNION every user who shares at least one non-deleted group (`groups.deleted_at is null`, both `group_members.left_at is null`) with U. Needs the index `group_members (user_id, group_id)` (partial `where left_at is null`). Consequences:
-- An implicit friend has no `friendships` row, so it cannot be removed. It disappears from the list when the last shared group is deleted or either user leaves it (unless an explicit row also exists).
-- A non-group expense does not create a friendship row. Its users must already be friends (explicit or implicit) when it is created; see business_rules §10 and OQ-37 for what happens after an implicit friendship ends.
+- While a group is shared, an implicit friend has no `friendships` row, so it cannot be removed (`DELETE /friends/{id}` -> 409 `SHARED_GROUPS_EXIST`). It does not disappear when the last shared group ends: see "Materialization" below.
+- A non-group expense does not create a friendship row. Its users must already be friends (explicit or implicit) when it is created; because ending friendships are materialized, such expenses never lose their friend list entry (business_rules §10.1a).
+- **Materialization (business_rules §10.1a).** In the transaction of `DELETE /groups/{id}/members/{user_id}` or `DELETE /groups/{id}`, each candidate pair that now shares no other non-deleted group is upserted with `(user_id, friend_id) = (least, greatest)`: insert `status = 'active'`; existing `active` row unchanged; existing `removed` row set to `active` with `removed_at = null` (`created_at` kept); `blocked` untouched. Suggested statement: `INSERT ... ON CONFLICT (user_id, friend_id) DO UPDATE SET status = 'active', removed_at = NULL WHERE friendships.status = 'removed'`. No `activity_log`, `activity_recipients` or `notifications` rows are written. Restoring a group does not delete the rows. No new column, table or index is needed.
 - Removing an explicit friend sets `status = 'removed'` and `removed_at` and soft-deletes both the non-group expenses and the non-group settlements involving only the two users (decided 2026-11-09, OQ-37b); if the two still share a group they remain in each other's list via the group, but removal is refused in that case anyway (409 `SHARED_GROUPS_EXIST`).
 
 ### categories
@@ -420,7 +421,7 @@ All observed extras are covered above: categories, currencies, exchange_rates, r
 - Unique `(recurring_rule_id, occurrence_date)` on expenses.
 - Unique `(created_by, idempotency_key)` on expenses and settlements, plus the `idempotency_keys` table for all other endpoints that accept the header.
 - Partial unique `group_invites(group_id) where revoked_at is null`.
-- `friendships` check `user_id < friend_id`. Only explicit friendships have rows (OQ-33).
+- `friendships` check `user_id < friend_id`. Rows exist for explicit friendships and for pairs materialized when their last shared group ended (OQ-33, OQ-37a); never for pairs that currently share a group and nothing else.
 - Indexes: `group_members(user_id, group_id) where left_at is null` (friend list derivation, OQ-33); `expenses(group_id, expense_date desc) where deleted_at is null`; `expense_splits(user_id)`; `expense_payers(user_id)`; `settlements(group_id)`, `settlements(from_user_id)`, `settlements(to_user_id)`; `activity_recipients(user_id, activity_id desc)`; `recurring_rules(next_occurrence_date) where active`; GIN trigram on `expenses.description` for search (V2).
 
 **Evidence / confidence:**
