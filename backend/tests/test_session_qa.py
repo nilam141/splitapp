@@ -64,11 +64,12 @@ def test_me_never_leaks_credentials(client):
     assert "password" not in text and "abcd1234" not in text
 
 
-def test_me_rejects_non_get_methods(client):
-    """PATCH /users/me is S2-B-3; until then it must not mutate or succeed."""
+def test_me_rejects_other_non_get_methods(client):
+    """PATCH /users/me shipped in S2-B-3 (tested in test_users_patch.py). POST/PUT/DELETE stay unsupported."""
     d = reg(client).json()
-    r = client.patch("/users/me", json={"name": "Hacker"}, headers=_auth(d["access_token"]))
-    assert r.status_code in (404, 405)
+    for method in ("post", "put", "delete"):
+        r = getattr(client, method)("/users/me", headers=_auth(d["access_token"]))
+        assert r.status_code in (404, 405), method
     assert client.get("/users/me", headers=_auth(d["access_token"])).json()["name"] == "Asha"
 
 

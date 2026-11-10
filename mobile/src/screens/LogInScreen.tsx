@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
 import { Button, ScrollView, StyleSheet, Text, View } from 'react-native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { AuthStackParamList } from '../navigation/types';
 import { useLogin } from '../api/generated/splitapp';
 import { useAuth } from '../auth/AuthContext';
 import { FormField } from '../components/FormField';
 import { normalizeEmail, validateLogIn, FieldErrors } from '../auth/validation';
 import { AuthFormError, mapAuthError, networkError } from '../auth/errors';
 
-export function LogInScreen() {
+type Props = NativeStackScreenProps<AuthStackParamList, 'LogIn'>;
+
+export function LogInScreen({ route }: Props) {
   const { startSession } = useAuth();
   const login = useLogin();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(route.params?.email ?? '');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<FieldErrors>({});
   const [banner, setBanner] = useState<string | undefined>();

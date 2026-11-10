@@ -22,7 +22,9 @@ _STATUS_CODES = {
 
 
 class ApiError(Exception):
-    def __init__(self, status: int, code: str, message: str, details: dict[str, Any] | None = None):
+    def __init__(self, status: int, code: str, message: str, details: dict[str, Any] | None = None,
+                 headers: dict[str, str] | None = None):
+        self.headers = headers
         self.status = status
         self.code = code
         self.message = message
@@ -39,8 +41,10 @@ def _body(code: str, message: str, details: dict[str, Any] | None = None) -> dic
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def _api_error(_: Request, exc: ApiError) -> JSONResponse:
-        headers = {"WWW-Authenticate": "Bearer"} if exc.status == 401 else None
-        return JSONResponse(_body(exc.code, exc.message, exc.details), status_code=exc.status, headers=headers)
+        headers = {"WWW-Authenticate": "Bearer"} if exc.status == 401 else {}
+        headers.update(exc.headers or {})
+        return JSONResponse(_body(exc.code, exc.message, exc.details), status_code=exc.status,
+                            headers=headers or None)
 
     @app.exception_handler(RequestValidationError)
     async def _validation(_: Request, exc: RequestValidationError) -> JSONResponse:

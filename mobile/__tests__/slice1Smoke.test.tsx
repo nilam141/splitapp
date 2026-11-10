@@ -16,6 +16,13 @@ import { QueryClient } from '@tanstack/react-query';
 import App from '../App';
 import { clearTokens, resetTokenCache } from '../src/auth/tokenStorage';
 
+// SCR-11 asks for confirmation: first press opens the dialog, the last "Log out" is its confirm button.
+async function logOutAndConfirm() {
+  await fireEvent.press(await screen.findByText('Log out'));
+  const buttons = await screen.findAllByText('Log out');
+  await fireEvent.press(buttons[buttons.length - 1]);
+}
+
 const json = (status: number, body?: unknown) => ({
   status,
   headers: new Headers(),
@@ -249,7 +256,11 @@ describe('Session restore against the Slice 1 backend (GET /users/me exists, S1-
     await render(<App queryClient={qc} />);
     expect(await screen.findByText('Friends')).toBeTruthy();
     expect(screen.queryByText('Share expenses, settle up.')).toBeNull();
-    expect(calls.map(c => `${c.method} ${c.path}`)).toEqual(['GET /users/me']);
+    // The Groups tab (Slice 2) also loads its own data; what matters here is exactly one session
+    // restore call and no auth refresh/login traffic.
+    expect(calls.filter(c => c.path === '/users/me').map(c => c.method)).toEqual(['GET']);
+    expect(calls.filter(c => c.path.startsWith('/auth'))).toEqual([]);
+    expect(calls.filter(c => c.method !== 'GET')).toEqual([]);
     expect(JSON.parse(vault as string)).toEqual({
       accessToken: 'acc1',
       refreshToken: 'rt_ref1',
@@ -270,7 +281,7 @@ describe('Session restore against the Slice 1 backend (GET /users/me exists, S1-
   it('log out then restart lands on welcome: POST /auth/logout once with the stored refresh token, storage empty', async () => {
     await logIn();
     await fireEvent.press((await screen.findAllByText('Account'))[0]);
-    await fireEvent.press(await screen.findByText('Log out'));
+    await logOutAndConfirm();
     expect(await screen.findByText('Share expenses, settle up.')).toBeTruthy();
     const out = calls.filter(c => c.path === '/auth/logout');
     expect(out).toHaveLength(1);
@@ -292,7 +303,7 @@ describe('Session restore against the Slice 1 backend (GET /users/me exists, S1-
         : inner(u, i),
     );
     await fireEvent.press((await screen.findAllByText('Account'))[0]);
-    await fireEvent.press(await screen.findByText('Log out'));
+    await logOutAndConfirm();
     expect(await screen.findByText('Share expenses, settle up.')).toBeTruthy();
     expect(vault).toBeNull();
     await restart();

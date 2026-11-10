@@ -57,3 +57,9 @@ def hash_refresh_token(token: str) -> bytes:
 
 def new_friend_code() -> str:
     return "".join(secrets.choice(_FRIEND_CODE_ALPHABET) for _ in range(8))
+
+
+def new_reset_token() -> tuple[str, bytes]:
+    """Return (opaque token for the email link, sha256 hash to store)."""
+    token = "pr_" + secrets.token_urlsafe(32)
+    return token, hash_refresh_token(token)

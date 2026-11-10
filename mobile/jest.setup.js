@@ -10,3 +10,16 @@ jest.mock(
   'react-native-safe-area-context',
   () => require('react-native-safe-area-context/jest/mock').default,
 );
+
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+);
+
+jest.mock('react-native-contacts', () => ({
+  __esModule: true,
+  default: {
+    checkPermission: jest.fn(() => Promise.resolve('undefined')),
+    requestPermission: jest.fn(() => Promise.resolve('denied')),
+    getAllWithoutPhotos: jest.fn(() => Promise.resolve([])),
+  },
+}));

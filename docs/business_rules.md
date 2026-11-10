@@ -252,6 +252,7 @@ Every revoked `refresh_tokens` row records why (`revoked_reason`, data_model):
 - **Logout** (`logout`): `POST /auth/logout` revokes the presented token (only if it is live and the caller's). Other tokens of the user are untouched.
 - **Reuse detection** (`reuse_detected`): presenting a token whose reason is `rotated`, or losing a rotation race (the atomic claim fails), is treated as theft. All of the user's live tokens are revoked with reason `reuse_detected` and the call returns `401 TOKEN_INVALID`.
 - **Password reset** (`password_reset`): a successful reset revokes all of the user's live tokens.
+- **Password-reset token issuance** (owner decision 2026-11-10): a new `POST /auth/password-reset` request for a user invalidates all of that user's earlier unexpired, unused reset tokens (only the newest works; older ones return 410 on confirm). Other users' tokens are unaffected.
 - **Presenting a token revoked by logout does NOT trigger reuse detection.** It returns `401 TOKEN_INVALID` and revokes nothing else. The same holds for tokens already revoked as `reuse_detected` or `password_reset` (nothing live is left to protect from that token; the user's newer tokens must not be killed by a stale client retry). Rationale: after logout on one device, a stale retry or a duplicate request would otherwise sign out the user's other devices.
 - An expired or unknown token returns `401 TOKEN_INVALID` with no side effect.
 

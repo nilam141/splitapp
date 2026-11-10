@@ -16,8 +16,8 @@ from sqlalchemy.pool import StaticPool
 import app.models  # noqa: F401
 from app.db import Base, get_db
 from app.main import app
-from app.models import Currency
-from app.seed import CURRENCIES
+from app.models import Category, Currency
+from app.seed import CURRENCIES, category_rows
 
 PG_URL = os.environ.get("TEST_DATABASE_URL")
 
@@ -42,6 +42,9 @@ def engine():
         Base.metadata.create_all(eng)
         with sessionmaker(bind=eng)() as s:
             s.add_all(Currency(code=c, name=n, symbol=sym, exponent=e) for c, n, sym, e in CURRENCIES)
+            s.add_all(Category(**r) for r in category_rows() if r["parent_id"] is None)
+            s.flush()
+            s.add_all(Category(**r) for r in category_rows() if r["parent_id"] is not None)
             s.commit()
     yield eng
     eng.dispose()

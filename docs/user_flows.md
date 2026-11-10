@@ -57,7 +57,7 @@ Shared test fixture (used by every flow unless stated):
 - Link reset by a member → the old link returns 410 → "invite no longer valid".
 - A tries to add more than 200 members → 422 `GROUP_TOO_LARGE` (**decision**).
 
-**Postconditions:** 1 `groups` row; 4 `group_members`; 1 `group_invites` token; activity entries `group.created` (1) and `group.member_added` (one per added member); a push "added to group" to each registered added member (V2).
+**Postconditions:** 1 `groups` row; 4 `group_members`; 1 `group_invites` token; activity entries: exactly 1 `group.created` row plus one `activity_recipients` row per registered, non-deleted member (no per-member `group.member_added`; that action is written only by `POST /groups/{id}/members`); phone-only or email placeholders get no activity recipient row; a push "added to group" to each registered added member (V2).
 
 ---
 

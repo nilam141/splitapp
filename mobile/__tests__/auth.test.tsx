@@ -14,6 +14,13 @@ import {
   resetTokenCache,
 } from '../src/auth/tokenStorage';
 
+// SCR-11 asks for confirmation: first press opens the dialog, the last "Log out" is its confirm button.
+async function logOutAndConfirm() {
+  await fireEvent.press(await screen.findByText('Log out'));
+  const buttons = await screen.findAllByText('Log out');
+  await fireEvent.press(buttons[buttons.length - 1]);
+}
+
 const json = (status: number, body?: unknown) => ({
   status,
   headers: new Headers(),
@@ -313,7 +320,7 @@ describe('session restore', () => {
     routes['/auth/logout'] = () => json(204);
     await render(<App queryClient={qc} />);
     await fireEvent.press((await screen.findAllByText('Account'))[0]);
-    await fireEvent.press(await screen.findByText('Log out'));
+    await logOutAndConfirm();
     expect(await screen.findByText('Share expenses, settle up.')).toBeTruthy();
     expect(vault).toBeNull();
     expect(requests.find(r => r.url === '/auth/logout')?.body).toEqual({
@@ -337,7 +344,7 @@ describe('session restore', () => {
     });
     await render(<App queryClient={qc} />);
     await fireEvent.press((await screen.findAllByText('Account'))[0]);
-    await fireEvent.press(await screen.findByText('Log out'));
+    await logOutAndConfirm();
     expect(await screen.findByText('Share expenses, settle up.')).toBeTruthy();
     expect(vault).toBeNull();
     expect(requests.find(r => r.url === '/auth/logout')?.body).toEqual({
@@ -364,7 +371,7 @@ describe('session restore', () => {
     };
     await render(<App queryClient={qc} />);
     await fireEvent.press((await screen.findAllByText('Account'))[0]);
-    await fireEvent.press(await screen.findByText('Log out'));
+    await logOutAndConfirm();
     expect(await screen.findByText('Share expenses, settle up.')).toBeTruthy();
     const bodies = requests
       .filter(r => r.url === '/auth/logout')

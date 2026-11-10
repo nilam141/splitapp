@@ -4,10 +4,14 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { getCurrentUser, logout as logoutRequest } from '../api/generated/splitapp';
+import {
+  getCurrentUser,
+  logout as logoutRequest,
+} from '../api/generated/splitapp';
 import type { AuthResponse, UserMe } from '../api/generated/model';
 import { clearTokens, loadTokens, saveTokens } from './tokenStorage';
 import { onSessionExpired } from './sessionEvents';
@@ -22,6 +26,10 @@ type AuthContextValue = {
   /** Persist the tokens from a login/register response and enter the app. */
   startSession: (auth: AuthResponse) => Promise<void>;
   signOut: () => Promise<void>;
+  /** Replace the cached profile after a successful PATCH /users/me. */
+  setUser: (user: UserMe) => void;
+  /** Set when the session ended because the refresh token was rejected (SCR-44); holds the email to prefill. */
+  expiredEmail: string | null;
   retryRestore: () => void;
 };
 
@@ -32,6 +40,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>('loading');
   const [user, setUser] = useState<UserMe | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [expiredEmail, setExpiredEmail] = useState<string | null>(null);
+  const userRef = useRef<UserMe | null>(null);
+  userRef.current = user;
 
   // Restore the session on launch (and on Retry).
   useEffect(() => {
@@ -78,6 +89,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(
     () =>
       onSessionExpired(() => {
+        // SCR-44 only when a live session ends; on launch (no user yet) SCR-01 goes to SCR-02.
+        setExpiredEmail(userRef.current?.email ?? null);
         queryClient.clear();
         setUser(null);
         setStatus('signedOut');
@@ -91,6 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       refreshToken: auth.refresh_token,
     });
     setUser(auth.user);
+    setExpiredEmail(null);
     setStatus('signedIn');
   }, []);
 
@@ -106,14 +120,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await clearTokens();
     queryClient.clear();
     setUser(null);
+    setExpiredEmail(null);
     setStatus('signedOut');
   }, [queryClient]);
 
   const retryRestore = useCallback(() => setAttempt(a => a + 1), []);
 
   const value = useMemo(
-    () => ({ status, user, startSession, signOut, retryRestore }),
-    [status, user, startSession, signOut, retryRestore],
+    () => ({
+      status,
+      user,
+      startSession,
+      signOut,
+      setUser,
+      expiredEmail,
+      retryRestore,
+    }),
+    [status, user, startSession, signOut, expiredEmail, retryRestore],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
