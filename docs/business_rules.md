@@ -14,15 +14,17 @@
 - All intermediate products (`T × weight`) fit in a signed 64-bit integer: 9,999,999,999 × 10,000 (basis points) ≈ 1e14 < 9.2e18. Python ints are unbounded anyway. The TypeScript client must use integer-safe maths: values stay < 2^53 ≈ 9.0e15, so `number` is safe for the products used here; property tests assert this.
 
 **Canonical order.** Wherever leftover units are handed out, participants are ordered by:
-1. Group expense: `group_members.sort_index` (join order) ascending.
-2. Non-group expense: the expense creator first, then the others by ascending `user_id` (uuid string compare).
+1. Group expense: `group_members.sort_index` (join order) ascending. The creator of the group is 0; members added in one request follow in request order (`member_user_ids`, then `new_members`).
+2. Non-group expense: the expense creator (`created_by`) first, then the others by ascending `user_id` (uuid string compare).
 
-The server computes the order; client order is ignored. The client mirrors the same rule only for previews. (Reference order unknown: OQ-01.)
+The server computes the order; client order is ignored. The result is stored in `expense_splits.sort_index`. The client mirrors the same rule only for previews. `GET /groups/{id}/balances` lists members in the same order. (Reference order unknown: OQ-01.)
 
 ## 2. Split types
 For each type: inputs, validation, algorithm, rounding rule, worked example.
 
-All types produce `owed[u]` for each participant with `Σ owed = T` exactly. The participant set `P` must have ≥ 1 member. Every participant must be a current group member (group expense) or the creator or a friend (non-group).
+All types produce `owed[u]` for each participant with `Σ owed = T` exactly. The participant set `P` must have ≥ 1 member. Every participant and every payer must be a current group member (group expense) or the creator or a friend (non-group); otherwise `422 PARTICIPANT_NOT_MEMBER`. `T` itself must satisfy `1 ≤ T ≤ 9,999,999,999`, otherwise `422 AMOUNT_OUT_OF_RANGE`, and the currency must be supported, otherwise `422 CURRENCY_UNKNOWN`.
+
+Error `details` keys (also listed on the openapi `Error` schema): `SPLIT_SUM_MISMATCH`, `PAYER_SUM_MISMATCH` and `SPLIT_ADJUSTMENT_EXCEEDS_TOTAL` carry `expected`, `actual`, `difference` (= actual − expected, minor units; for the adjustment error expected = T and actual = Σ adj). `SPLIT_PERCENT_MISMATCH` carries `difference_bp`.
 
 ### 2.1 Equal
 - **Inputs:** `T`, a participant set `P` (n ≥ 1).
@@ -116,14 +118,22 @@ def net_balances(scope, currency):
 
 ### 4.2 Pairwise debts (who owes whom)
 Used when simplify is **off**, and for friend-level balances.
-- For each expense: let creditors `C` = users with net > 0 and debtors `D` = users with net < 0. Each debtor `d` owes `|net_d|`. That debt is spread over the creditors in proportion to their credit with `split_weighted(|net_d|, [(c, net_c) for c in C])`, in canonical order. Each piece is an edge `d → c`.
+- For each expense: let creditors `C` = users with net > 0 and debtors `D` = users with net < 0, both in canonical order (§1). Each debtor `d` owes `|net_d|`; each creditor `c` is owed `net_c`; `S = Σ|net_d| = Σ net_c`. The debts are spread over the creditors **in proportion to credit, with controlled rounding** so that every debtor's edges add up to exactly `|net_d|` **and** every creditor's edges add up to exactly `net_c` (decided 2026-11-11, OQ-44; this replaces the earlier per-debtor `split_weighted`, which could leave a creditor off by one unit). Integers only:
+  1. **Floors.** For each pair `(d, c)`: `p = |net_d| × net_c`, `f[d,c] = p div S`, `r[d,c] = p mod S`.
+  2. **Residuals.** `R[d] = |net_d| − Σ_c f[d,c]` and `K[c] = net_c − Σ_d f[d,c]`. These are whole numbers, `0 ≤ R[d] < |C|`, `0 ≤ K[c] < |D|`, and `Σ R = Σ K`.
+  3. **Hand out the residual units.** Walk the candidate cells (those with `r[d,c] > 0`) in this fixed order: `r[d,c]` descending, then debtor canonical position ascending, then creditor canonical position ascending. Give a cell `+1` if `R[d] > 0`, `K[c] > 0`, and the remaining residuals can still be completed with the remaining unvisited candidate cells (each cell at most +1; an exact feasibility test such as a small max-flow). Decrement `R[d]` and `K[c]` when a cell is accepted. Stop when all `R` and `K` are 0. A completion always exists (the fractional matrix `r / S` has integer row and column sums, so by integrality of bipartite flow a 0/1 choice exists), so the walk never gets stuck.
+  4. `x[d,c] = f[d,c] + (1 if the cell was accepted else 0)`. Each non-zero `x` is an edge `d → c`.
+  - **Exactness note.** Debtor side: `Σ_c x[d,c] = |net_d|` for every debtor. Creditor side: `Σ_d x[d,c] = net_c` for every creditor. Hence, after summing the edges of all expenses and settlements, every user's outgoing minus incoming edge total equals minus their net; netting each pair (below) keeps this. Pairwise edges therefore net to the same per-user nets as §4, to the unit. Implementations must be integer-only (no floats, no `Fraction` rounding); the walk and the tie-breaks are part of the contract because they decide who is owed by whom when two splits are equally good.
+  - `split_weighted` (§2.3) is unchanged and still used for percent, shares and conversion; it is no longer used in §4.2.
 - For each settlement `X → Y` with amount `a`: add the edge `Y → X` of `a` (it cancels X's debt to Y; an overpayment makes Y owe X).
 - Sum the edges per ordered pair, then net each unordered pair: `owe(i→j) = max(0, E[i→j] − E[j→i])`.
 - Single-payer expenses reduce to the obvious rule: every split participant owes the payer their owed amount.
-- **Example:** T 10000; A paid 7000, B paid 3000; equal among A, B, C, D (2500 each). Nets A +4500, B +500, C −2500, D −2500. C's 2500 spread 4500:500 → C→A 2250, C→B 250. Same for D → D→A 2250, D→B 250.
+- **Example:** T 10000; A paid 7000, B paid 3000; equal among A, B, C, D (2500 each). Nets A +4500, B +500, C −2500, D −2500. All remainders are 0, so C→A 2250, C→B 250, D→A 2250, D→B 250.
+- **Example with rounding (vector 24):** nets A +3334, B +3333, C −3333, D −3334, S = 6667. Floors: C→A 1666 (r 5000), C→B 1666 (r 1667), D→A 1667 (r 1667), D→B 1666 (r 5000). Residuals R[C] = 1, R[D] = 1, K[A] = 1, K[B] = 1. Walk: C→A (r 5000, first) accepted, D→B (r 5000) accepted. Result C→A 1667, C→B 1666, D→A 1667, D→B 1667.
+- **Example, the case the old rule got wrong (vector 61):** A, B, C each paid 1 (nets +1 each); D owes 1, E owes 2. S = 3. All floors are 0; r: D→A/B/C 1 each, E→A/B/C 2 each; R[D] = 1, R[E] = 2, K[A] = K[B] = K[C] = 1. Walk: E→A (r 2) accepted, E→B accepted, E→C skipped (R[E] = 0), D→A and D→B skipped (K = 0), D→C accepted. Edges E→A 1, E→B 1, D→C 1: every creditor receives exactly 1.
 
 ### 4.3 Friend balance
-`friend_balance(me, f, currency)` = `Σ over shared groups g` of the amount on the suggested-payment edge between me and f in g (simplified edges if `g.simplify_debts`, pairwise edges otherwise) **+** the pairwise non-group balance between me and f. Positive = f owes me. (**decision**; OQ-28 for how the reference app attributes simplified group debts to friends.)
+`friend_balance(me, f, currency)` = `Σ over shared groups g` of the amount on the suggested-payment edge between me and f in g (simplified edges if `g.simplify_debts`, pairwise edges otherwise) **+** the pairwise non-group balance between me and f. Positive = f owes me. (**decision**; OQ-28 for how the reference app attributes simplified group debts to friends.) Friend `settled_up_since` (all balances zero) = the later of the latest live expense `created_at` across shared scopes (including groups the viewer has left, excluding soft-deleted groups) and the viewer's `left_at` for that shared group; null if non-zero or no activity. A member can leave only at net 0, so a viewer who left is settled with that group's former co-members.
 
 ## 5. Debt simplification
 - **Plain language:** within one group and one currency, ignore who owes whom on each expense. Look only at each member's net balance. Then repeatedly match the member who is owed the most with the member who owes the most; the debtor pays the smaller of the two amounts. Repeat until everyone is at zero. This uses at most N−1 payments for N non-zero members. Nobody pays or receives more in total than their net balance says, so no one ends up worse off. A member may be told to pay someone they never shared an expense with (this is what the reference app's explanation describes, observed (static)).
@@ -140,7 +150,7 @@ def simplify(nets, canonical):                         # nets: {user: int}, Σ =
     return transfers                                   # order = output order shown to users
 ```
 - Ties on amount: the earlier member in canonical order wins.
-- The greedy method is not guaranteed to give the absolute minimum number of payments (that problem is NP-hard). It does guarantee ≤ N−1. The reference app's exact algorithm is unknown (OQ-14).
+- The greedy method is not guaranteed to give the absolute minimum number of payments (that problem is NP-hard). It does guarantee ≤ N−1. It does **not** guarantee fewer payments than the pairwise list of §4.2 (the pairwise list can be shorter in some histories); the only guarantee is `simplify` ≤ N−1 transfers. The reference app's exact algorithm is unknown (OQ-14).
 - **Example:** A owes B 10, B owes C 10 -> A pays C 10 (1 transaction instead of 2). In minor units: nets A −1000, B 0, C +1000 → [A→C 1000].
 - **When the toggle is off:** show the pairwise edges from §4.2 (A→B 1000, B→C 1000). Toggling changes only how payments are *presented and suggested*. It never changes stored expenses, settlements or net balances. A settlement recorded under either mode is just a settlement; nets are recomputed from scratch.
 - Simplification is computed per currency, never across currencies.
@@ -149,10 +159,11 @@ def simplify(nets, canonical):                         # nets: {user: int}, Σ =
 - **Full settle:** the UI pre-fills `amount = |suggested edge|` in its currency. After saving, that edge becomes 0 and, when it was the only one, both members' nets are 0.
 - **Partial settle:** any `1 ≤ amount < edge` is allowed. The remainder stays owed (5000 owed, 2000 paid → 3000 owed).
 - **Overpayment:** `amount > edge` is allowed after a client-side confirmation. The direction flips (3000 owed, 5000 paid → the receiver now owes 2000). The API doesn't block it (OQ-15).
-- **Who can record:** either party, or any group member for a group settlement (**decision**, OQ-13).
+- **Who can record:** either party, or any group member for a group settlement (**decision**, OQ-13). For a non-group settlement the creator must be the payer or the receiver, otherwise `403 FORBIDDEN`. For a group settlement both parties must be current members, otherwise `422 PARTICIPANT_NOT_MEMBER`. `from_user_id = to_user_id` → `422 SAME_PARTY`.
 - **Currency:** a settlement has its own currency and only affects that currency's balances. Paying USD against an INR debt leaves the INR debt and creates a USD balance.
 - **Settling across groups vs. overall friend balance:** "settle all with friend f" creates one settlement per (scope, currency) with a non-zero edge between the two, all sharing a `batch_id`, each for the exact edge amount. It does not create a single cross-group payment. The friend total becomes 0 in each currency.
 - **Edit/delete/restore:** soft delete; balances are recomputed; restore re-applies the settlement.
+- **Departed party (decided 2026-11-11, OQ-43; same rule as §8 for expenses, applies from S5):** a group settlement whose payer (`from_user_id`) or receiver (`to_user_id`) is no longer a current member (`left_at` set) cannot be edited, deleted or restored: `409 EXPENSE_HAS_DEPARTED_MEMBER` (the code is shared with expenses). A non-group settlement cannot be restored while the two users are not friends (explicit active friendship or a shared non-deleted group): same 409. Rejoining clears `left_at`, so the operations work again. Order of checks as for expenses (§8).
 
 ## 7. Multi-currency
 - **Conversion timing:** none by default. Each expense and settlement stays in its own currency forever. Balances are computed and shown **per currency** (e.g. "owes you ₹500.00 and $10.00").
@@ -162,17 +173,20 @@ def simplify(nets, canonical):                         # nets: {user: int}, Σ =
   - The original amount, currency and rate go into `fx_*` columns; activity `group.currency_converted` is written.
 - **Rate source and rounding:** one provider, daily rates stored in `exchange_rates` (OQ-17). Rounding is ROUND_HALF_UP to the target's minor unit, applied once per total (never per split).
 - **Balances displayed per currency or converted:** per currency. No "approximate total in default currency" in MVP (OQ-29).
+- **Currency is immutable after creation (decided 2026-11-07, OQ-31).** `PATCH /expenses/{id}` and `PATCH /settlements/{id}` cannot change the currency. `ExpenseUpdate.total` and `SettlementUpdate.amount` are `Money` objects, so the field is structurally present; the server accepts it only when `currency` equals the stored currency, and otherwise returns `422 VALIDATION_ERROR` with `details.fields = [{field: "total.currency" (or "amount.currency"), message: ...}]`. To change a currency, delete the item and create a new one. The only other way a currency changes is the Later "convert" action above, which is a separate operation (not PATCH). See vector 41.
 
 ## 8. Edge cases
 - **Deleted or removed user with a non-zero balance:** a member can't leave or be removed while their group balance ≠ 0 in any currency → `409 OUTSTANDING_BALANCE` (observed (static)). A deleted *account* keeps its rows. The name becomes "Deleted user" and balances stay visible to the others, who can still record settlements against it (OQ-D5).
-- **Departed member on an old expense:** the expense can't be edited (`409 EXPENSE_HAS_DEPARTED_MEMBER`, observed (static)) but can be deleted or restored.
+- **Leaving, removal and group delete keep friendships:** when the last shared non-deleted group of a pair ends, the pair becomes explicit friends in the same transaction (§10.1a, OQ-37a). Restoring a group does not undo this.
+- **Departed member on an old expense (revised 2026-11-11, OQ-43):** a group expense with a payer or split participant who is no longer a current member (`group_members.left_at` set) can be neither edited, deleted nor restored: each returns `409 EXPENSE_HAS_DEPARTED_MEMBER`. The reference app was observed (static) to block only edit; our design also blocks delete and restore because either one changes the departed member's net after they left at exactly 0, which would bypass the `OUTSTANDING_BALANCE` guard. Rejoining clears `left_at`, so the operations are allowed again. The check runs inside the existing group lock. Order of checks: 404/403, then `ALREADY_DELETED` / `NOT_DELETED`, then `VERSION_CONFLICT` (edit), then the departed check, then validation (422).
+- **Restoring a non-group expense (OQ-43):** restore returns `409 EXPENSE_HAS_DEPARTED_MEMBER` when its participants are no longer friends, i.e. no active explicit friendship and no shared non-deleted group (for example after `DELETE /friends/{id}` soft-deleted it, §10.2). Once they are friends again (or share a live group), restore works. Delete and edit of a live non-group expense are unaffected (they need no friend check).
 - **Editing/deleting an expense after a settlement:** allowed. Settlements are never modified automatically. Nets are recomputed, so the pair may become unsettled again (an edit from 9000 to 12000 re-opens 1000 per participant). The activity feed shows the change.
 - **Payer not in the split:** allowed. The payer has `owed = 0` and no split row; their net = paid.
 - **Zero or negative amounts:** `T ≤ 0` → `422 AMOUNT_OUT_OF_RANGE`. Negative per-person inputs (exact, shares, adjustment, percentage) → 422. An exact split may give some people 0, but at least one must be > 0. Refunds are modelled as an expense whose payer is the person receiving the refund (no negative expenses).
 - **Recurring expense when a member has left:** the next occurrence drops departed members. Equal splits run over the remaining participants. Percent and shares splits re-normalise the remaining weights (e.g. 50/30/20 with the 20% member gone → weights 50:30 → 62.5/37.5). An exact split that no longer sums gets converted to shares using the old amounts as weights. Adjustment keeps the remaining adjustments, and if their total now exceeds T, it falls back to equal. If no participant remains, the rule deactivates. (**decision**, OQ-16)
 - **Expense with only the creator involved** (group expense, A pays, split only A): allowed but pointless; the net is 0. The UI warns.
 - **Non-group expense not involving the creator** → `422 CURRENT_USER_NOT_INVOLVED` (observed (static)).
-- **More than one group on an expense** → rejected (observed (static)).
+- **More than one group on an expense** → rejected (observed (static)). This is enforced by the UI only. The API takes a single nullable `group_id`, so a second group cannot be expressed. On `POST /groups/{id}/expenses` a `group_id` in the body is ignored (the path wins).
 - **Same user twice in splits** → `422 DUPLICATE_PARTICIPANT`.
 - **Concurrent edits** → optimistic locking on `version` → `409 VERSION_CONFLICT`.
 - **Placeholder merge:** when a placeholder is claimed, every row referencing the placeholder id is re-pointed to the real user in one transaction. If both appear on the same expense, their payer and split rows are summed into one row.
@@ -193,6 +207,80 @@ Observed (static) as premium-only in the reference app: currency conversion, cha
 | Daily add-expense cap | none (recommended) | none |
 
 **When a limit is hit:** the API returns `402 PREMIUM_REQUIRED` with `{feature: "<key>"}`. The client opens SCR-39 and does not retry. Gating is enforced server-side; the client gate is cosmetic.
+
+## 10. Friends and reminders
+
+### 10.1 Friend list (decided 2026-11-07, OQ-33)
+- Only explicit friendships (friend code, email, phone, personal link) are stored.
+- `GET /friends` returns explicit active friends UNION users sharing at least one non-deleted group with the caller (both with `left_at` null), computed at read time using the `group_members (user_id, group_id)` index. A user in both sets appears once.
+- Implicit friends (shared group only) have no row while a group is shared: they cannot be removed (409 `SHARED_GROUPS_EXIST`). They do **not** vanish when the last shared group ends: the moment that happens an explicit row is written for the pair (decided 2026-11-10, OQ-37a; see 10.1a). A shared group counts only while it is not soft-deleted.
+- `GET /friends/{user_id}` works for any user in the derived list, else 404. `POST /friends` for a user who is already an implicit friend creates the explicit row and returns 201 (an explicit row did not exist); it returns 200 only if an active explicit row exists.
+- Non-group expenses and settlements need the other user to be in the derived friend list at creation (otherwise `422 PARTICIPANT_NOT_MEMBER`). Because an implicit friend is kept as an explicit friend when the last shared group ends (10.1a), such items never end up with nobody in the friend list.
+- `POST /friends` on an implicit-only friend returns 201 and creates the explicit row (decided 2026-11-10, owner confirmed, OQ-37c). The call is idempotent from then on (200).
+
+### 10.1a Keeping friends when a shared group ends (decided 2026-11-10, OQ-37a)
+Owner intent: a person you once shared a group with stays in your friend list after the last shared group ends. Implicit friends are derived at read time (OQ-33), so keeping them needs a stored row at the moment they would otherwise vanish.
+
+**Trigger** (inside the same database transaction as the event, and only if the event succeeds; a 403, 409 `OUTSTANDING_BALANCE` or 409 `ALREADY_DELETED` writes nothing):
+1. `DELETE /groups/{id}/members/{user_id}` (member leaves or is removed). Candidate pairs: the departing member X with every other current member Y of that group (`left_at` null).
+2. `DELETE /groups/{id}` (soft delete). Candidate pairs: every unordered pair of current members of that group.
+
+Not triggers: adding a member, restoring a group (nothing is undone), editing or deleting expenses, account changes.
+
+**Rule.** After the event is applied, a candidate pair {a, b} is materialized only if it now shares no other non-deleted group (both `left_at` null). A pair that still shares another group stays implicit and is re-evaluated when that group ends. Materialization is one set-based upsert on the pair ordered as `(user_id, friend_id) = (min, max)`:
+- no row: insert `status = 'active'`, `created_at = now`;
+- row `active`: no change (idempotent, never a duplicate);
+- row `removed` (the pair removed each other earlier and have since shared a new group): set `status = 'active'`, `removed_at = null`, keep `created_at`;
+- row `blocked` (V2): untouched.
+
+**Side effects: none.** No `activity_log` entry (no `friend.added`), no recipients, no notification, push or email, no invite. Placeholder (unregistered) members are materialized like anyone else; the invite was already queued when they were added to the group.
+
+**Cost.** A leave writes at most n-1 rows; deleting a group of 200 members writes at most 19,900 rows once, in a single statement. This is accepted because it happens at most once per pair per group ending and keeps the read path unchanged (OQ-33 still holds for the read path: no per-pair rows while groups are live).
+
+**Restore.** Restoring a soft-deleted group does not delete the rows. The pair then appears once in the list (explicit and implicit); `DELETE /friends/{id}` returns 409 `SHARED_GROUPS_EXIST` again while the restored group is shared.
+
+**Existing data.** None to backfill: the group endpoints (S2-B-5) and the materialization (S2-B-8) ship before any group can end in production. If S2-B-8 were ever deployed after groups had ended, the pairs that had already vanished are not recovered (accepted).
+
+**Alternatives considered.** (1) Lazy derivation, "friend list also includes everyone who ever shared a group": no writes, but a derived-only friend has no row to mark removed, so removal would need a tombstone table anyway, and the read query would scan departed and deleted groups. Rejected. (2) Materialize only for pairs that have non-group expenses or settlements: fewer rows and covers the original OQ-37a worry, but is narrower than the owner's "keep the friend". Not chosen; the owner can switch to it by narrowing the candidate pairs in 10.1a without any contract change.
+
+### 10.2 Removing a friend (decided 2026-11-07, OQ-32/33)
+`DELETE /friends/{user_id}` evaluates in this order:
+1. The two users share at least one non-deleted group (explicit or implicit friend) -> `409 SHARED_GROUPS_EXIST` with `details.group_ids`. This is the response for an implicit-only friend; it needs no new code or contract change, and the message tells the caller to leave the shared groups first. This check comes first even when an active explicit row exists: removing an explicit friend who still shares a group is refused and the row stays `active`.
+2. No shared group and no active explicit friendship row -> `404 NOT_FOUND` (covers strangers and already-removed friends). A former co-member whose last shared group has ended has an explicit row (10.1a), so they do not get 404; they reach step 3.
+3. Otherwise -> `204`. The friendship row becomes `removed`, and every non-group expense **and every non-group settlement** involving only the two users is soft-deleted in the same transaction, **regardless of any balance**. Removal is never blocked by a non-zero non-group balance (OQ-32); the debt is erased. Group expenses and group settlements are untouched. Deleting the settlements as well (decided 2026-11-09, OQ-37b) means no orphan payment is left once the expenses it paid down are gone; if only the settlements were kept, the pair would show a phantom balance in the opposite direction.
+
+The mobile UI must show a confirmation warning before calling DELETE, saying that non-group expenses and any balance with this person will be deleted (screens SCR-20).
+
+Restoring one of those soft-deleted non-group expenses (or settlements) later is refused with `409 EXPENSE_HAS_DEPARTED_MEMBER` until the two users are friends again (explicit friendship or a shared live group); see §8 and vector 65.
+
+### 10.3 Reminders (decided 2026-11-07, OQ-34)
+`POST /reminders` does **not** check that the recipient owes the sender (in the given scope or at all). Any authenticated sender may remind any permitted recipient. Checks that still apply: the recipient exists and is a friend (derived list) or a co-member of `group_id` if given (else 422 `VALIDATION_ERROR`), the sender is not the recipient, premium gating if adopted (D1), and the rate limit of 1 per (sender, recipient) per 60 seconds (`429 RATE_LIMITED`). The mobile UI still hides the Remind button at a zero balance.
+
+## 11. Auth sessions and rate limits (decided 2026-11-09, OQ-38 and the logout decision)
+
+### 11.1 Refresh-token revocation reasons
+Every revoked `refresh_tokens` row records why (`revoked_reason`, data_model):
+- **Rotation** (`rotated`): `POST /auth/refresh` revokes the presented token and issues a new one.
+- **Logout** (`logout`): `POST /auth/logout` revokes the presented token (only if it is live and the caller's). Other tokens of the user are untouched.
+- **Reuse detection** (`reuse_detected`): presenting a token whose reason is `rotated`, or losing a rotation race (the atomic claim fails), is treated as theft. All of the user's live tokens are revoked with reason `reuse_detected` and the call returns `401 TOKEN_INVALID`.
+- **Password reset** (`password_reset`): a successful reset revokes all of the user's live tokens.
+- **Password-reset token issuance** (owner decision 2026-11-10): a new `POST /auth/password-reset` request for a user invalidates all of that user's earlier unexpired, unused reset tokens (only the newest works; older ones return 410 on confirm). Other users' tokens are unaffected.
+- **Presenting a token revoked by logout does NOT trigger reuse detection.** It returns `401 TOKEN_INVALID` and revokes nothing else. The same holds for tokens already revoked as `reuse_detected` or `password_reset` (nothing live is left to protect from that token; the user's newer tokens must not be killed by a stale client retry). Rationale: after logout on one device, a stale retry or a duplicate request would otherwise sign out the user's other devices.
+- An expired or unknown token returns `401 TOKEN_INVALID` with no side effect.
+
+### 11.2 Rate limits (OQ-38; owner set the login limit to 5 attempts)
+Counted in a sliding window; a limited call returns `429 RATE_LIMITED`, `details.retry_after_seconds` (whole seconds, at least 1) and a `Retry-After` header with the same value. `retry_after_seconds` is the time until the oldest counted attempt leaves the window.
+| Endpoint | Key | Limit | Window |
+|---|---|---|---|
+| `POST /auth/login` | email, case-folded | 5 failed attempts; the 6th and later attempts return 429, including one with the correct password | 15 minutes |
+| `POST /auth/login` | client IP | 20 failed attempts | 15 minutes |
+| `POST /auth/password-reset` | email, case-folded | 3 requests; the 4th returns 429 | 1 hour |
+- Only failed logins count (wrong password or unknown email, both `INVALID_CREDENTIALS`); a successful login does not reset or count. A different email is unaffected unless the IP limit is hit. An unknown email is counted like a known one, so the response does not reveal whether the account exists.
+- `POST /auth/register` and `POST /auth/refresh` are not rate limited in this version.
+
+## 12. Activity unread count and group timeline (decided 2026-11-09, OQ-36 and OQ-35)
+- **Unread count.** `GET /activity` returns `unread_count` on every page: the number of the caller's `activity_recipients` entries whose `activity_log.created_at` is later than `users.activity_last_read_at` (all entries when it is null). Not capped, not limited by `group_id`, `limit` or `cursor`. `POST /activity/read` sets `activity_last_read_at` to now. `unread_count` equals the number of items with `is_unread = true` across the whole feed. The mobile badge shows `min(count, 99)` and "99+" above 99.
+- **Group timeline.** `GET /groups/{id}/timeline` merges the group's expenses and settlements into one list ordered by date desc (`expense_date`, or `settled_on` for a settlement), then `created_at` desc, then `id` desc. The two kinds interleave in that single order. Deleted items appear only with `include_deleted=true`. Paging is a keyset cursor over the same three keys, so adding or deleting items between pages never duplicates or skips an item that existed at both times.
 
 ## Test vectors (REA: provide at least 15)
 Participants are listed in canonical order. "→" means "pays". Amounts are minor units.
@@ -223,7 +311,7 @@ Participants are listed in canonical order. "→" means "pays". Amounts are mino
 | 21 | Simplify off (same data as 19) | pairwise edges | [A→B 1000, B→C 1000] |
 | 22 | Simplify, 2 creditors | nets A +4500, B +500, C −2500, D −2500 | [C→A 2500, D→A 2000, D→B 500] |
 | 23 | Pairwise, multiple payers | T 10000; A paid 7000, B 3000; equal A, B, C, D | C→A 2250, C→B 250, D→A 2250, D→B 250 |
-| 24 | Pairwise, uneven credit | nets A +3334, B +3333, C −3333, D −3334 | C→A 1667, C→B 1666, D→A 1667, D→B 1667 |
+| 24 | Pairwise, uneven credit (controlled rounding, §4.2 walk) | nets A +3334, B +3333, C −3333, D −3334 | C→A 1667, C→B 1666, D→A 1667, D→B 1667; every debtor and creditor total exact |
 | 25 | Partial settlement | B owes A 5000; B pays A 2000 | B owes A 3000 |
 | 26 | Full settlement | B owes A 3000; B pays A 3000 | balance 0 |
 | 27 | Overpayment | B owes A 3000; B pays A 5000 | A owes B 2000 |
@@ -239,7 +327,34 @@ Participants are listed in canonical order. "→" means "pays". Amounts are mino
 | 37 | Recurring leap year | yearly from 2028-02-29 | 2028-02-29, 2029-02-28, 2030-02-28, 2031-02-28, 2032-02-29 |
 | 38 | Recurring after member left | Rent 3,000,000 equal A, B, C; B leaves | next occurrence: A 1,500,000, C 1,500,000 |
 | 39 | Property: sums | random T in [1, 9,999,999,999], random type, 1–50 participants | Σ owed = T; every owed ≥ 0 |
-| 40 | Property: zero-sum | random group history | Σ nets = 0 per currency; applying simplify() output → all nets 0; transfers ≤ N−1 |
+| 40 | Property: zero-sum | random group history | Σ nets = 0 per currency; applying simplify() output → all nets 0; transfers ≤ N−1 (no claim that simplify has fewer transfers than the pairwise list); pairwise edges net to the same per-user nets to the unit (§4.2 exactness) |
+| 41 | PATCH cannot change currency | Expense E (INR, total 10000); PATCH `{version: 1, total: {amount_minor: 10000, currency: USD}}`. Same for a settlement with `amount.currency` | 422 VALIDATION_ERROR, `details.fields[0].field` = `total.currency` (`amount.currency` for a settlement); E unchanged, version unchanged. PATCH with `currency: INR` and a new amount succeeds |
+| 42 | Remove friend, balance not blocking | A and B are explicit friends, share no group; non-group expense E (A paid 6000, split equal A, B), so B owes A 3000 | DELETE /friends/B -> 204; E soft-deleted; A and B balance 0; B absent from A's list |
+| 43 | Remove implicit-only friend | A and B share group G, no explicit row | DELETE /friends/B -> 409 SHARED_GROUPS_EXIST with `group_ids` [G], repeated call still 409, and no `friendships` row is written by either call. (After G ends the pair has an explicit row and DELETE -> 204: see vectors 52 and 57.) |
+| 44 | Derived friend list while groups are live | A in G1 with B, C; explicit friend D who also shares G1 with A; no other groups | A's list = {B, C, D}, each once; `friendships` has exactly 1 row (A-D), none for B or C. (What happens when G1 ends: vectors 52-54.) |
+| 45 | Reminder without debt | A reminds B; B owes A nothing | 202 (no balance check); a second call within 60 s -> 429 RATE_LIMITED |
+| 46 | Logout-revoked token is not reuse | A has devices 1 and 2 (live tokens R1, R2). Device 1 logs out (R1 revoked, reason `logout`). Someone presents R1 to `POST /auth/refresh` | 401 TOKEN_INVALID; R2 still refreshes (200); R2's row is untouched (`revoked_at` null); R1's reason is still `logout` |
+| 47 | Rotated token is reuse | A logs in (R1), refreshes (R1 -> R2, R1 reason `rotated`), then presents R1 again | 401 TOKEN_INVALID; R2 and every other live token of A are revoked with reason `reuse_detected`; another user's tokens are untouched |
+| 48 | Login rate limit | Time frozen, window 900 s. 5 failed logins for `a@x.com` at t = 0, 10, 20, 30, 40 s | the attempt at t = 60 s -> 429 RATE_LIMITED with `retry_after_seconds` = 840 (the oldest counted attempt, t = 0, leaves the window at t = 900) and header `Retry-After: 840`; a correct password at t = 60 s is also 429; limited (429) attempts are not counted; `b@x.com` is unaffected (wrong password -> 401, correct -> 200); at t = 901 s only 4 failures remain in the window, so a correct password -> 200 |
+| 49 | Unread count | A's feed has 62 entries: 60 newer than `activity_last_read_at`, 2 older. `GET /activity?limit=50` (page 1), then page 2 with its cursor, then `GET /activity?group_id=G` where G holds 5 of the 62 | `unread_count` = 60 on page 1, page 2 and the filtered call (not capped, not page-limited, ignores `group_id`); page 1 has 50 items, all `is_unread`; page 2 has 12 items, 10 unread and 2 read; after `POST /activity/read`, `unread_count` = 0 and every `is_unread` is false; one new event by B then gives `unread_count` = 1 |
+| 50 | Group timeline order | Group G: expense E1 (expense_date 2026-11-05, created 10:00), settlement S1 (settled_on 2026-11-05, created 12:00), expense E2 (2026-11-06, created 09:00), settlement S2 (2026-11-04, created 11:00); S1 later soft-deleted | `GET /groups/G/timeline` -> E2, S1, E1, S2 (before the delete); after it: E2, E1, S2, and with `include_deleted=true` E2, S1, E1, S2; `limit=2` -> [E2, S1] with a `next_cursor`, then [E1, S2] with `next_cursor` null; a non-member -> 403 |
+| 51 | Remove friend deletes non-group settlements | A and B are explicit friends, share no group; non-group expense E (A paid 6000, equal A, B) and non-group settlement S (B paid A 1000, `group_id` null), so B now owes A 2000. A third user C has a non-group expense with A and a non-group settlement with B, both untouched by this call. `DELETE /friends/B` | 204; E and S both soft-deleted (`deleted_at` set); the A-B balance is 0 in every currency; C's expense and settlement are not deleted |
+| 52 | Leave keeps friends | A, B, C share G1 and nothing else. A also has explicit friend D (no shared group). All balances 0. A leaves G1 (`DELETE /groups/G1/members/me`) | 204; `friendships` rows: A-D (unchanged) plus new A-B and A-C, all `active`, each stored as `(user_id, friend_id) = (min, max)`; no B-C row (they still share G1); A's list = {B, C, D}, B's list = {A, C}, C's list = {A, B}; `DELETE /friends/B` by A -> 204 (not 404, not 409); `activity_log` has no `friend.added` row and the notification outbox has 0 new rows |
+| 53 | Pair with another shared group is not materialized | A, B, C in G1; A, B also in G2. A leaves G1 (balances 0) | new rows: A-C only (A-B still share G2, B-C still share G1); then A leaves G2 -> new row A-B; total new rows 2; A's list = {B, C} throughout |
+| 54 | Delete group materializes all pairs | G1 = {A, B, C}, G2 = {A, B}. A deletes G1; then A deletes G1 again; then A deletes G2 | after the first delete (204): new rows A-C and B-C only (A-B still share G2), 2 rows; second delete -> 409 ALREADY_DELETED, still 2 rows; deleting G2 (204) adds A-B, 3 rows; every pair's row is `active`; each user lists the other two |
+| 55 | Remove member materializes; a refused removal writes nothing | G = {A, B, C}. B owes 1 INR in G; A removes B -> 409 OUTSTANDING_BALANCE. B settles to 0; A removes B again | first call: 409, 0 rows, B still a member; second call: 204, new rows A-B and B-C (A-C still share G), 2 rows; lists: A = {B, C}, B = {A, C}, C = {A, B} |
+| 56 | Idempotent and ordered | (i) A-B already explicit `active` (created_at T0) and share G; A leaves G. (ii) A-B previously removed (row `removed`, `removed_at` set), then A and B both join new group H and H is deleted. (iii) run the whole of vector 52 twice with user ids chosen so that in one run A < B and in the other A > B | (i) no new row, the existing row unchanged (`created_at` = T0), 1 row; (ii) the same row becomes `active`, `removed_at` null, `created_at` unchanged, still 1 row; (iii) in both runs the stored row has `user_id` < `friend_id` and exactly one row exists for the pair; a repeated trigger never creates a second row |
+| 57 | Removing an explicit friend who still shares a group | A-B explicit `active` (via `POST /friends`), both in G. `DELETE /friends/B`; then B leaves G; then `DELETE /friends/B` again | first call: 409 SHARED_GROUPS_EXIST with `group_ids` [G], the row stays `active`; B leaves G: no new row (1 row for the pair); second call: 204, the row becomes `removed` with `removed_at` set, B absent from A's list |
+| 58 | Restore does not undo | A, B in G. A deletes G (row A-B created, 1 row). A restores G | after the delete: B in A's list; after the restore: 1 row (unchanged), B in A's list once; `DELETE /friends/B` -> 409 SHARED_GROUPS_EXIST [G] again; after A leaves G -> no new row, `DELETE /friends/B` -> 204 |
+| 59 | Non-group items survive the end of a shared group | A, B in G; non-group expense E (A paid 6000, equal A, B), so B owes A 3000. A deletes G | `GET /friends` for A still lists B; `GET /friends/B` -> 200 with a non-group balance of 3000 INR (B owes A); E is not deleted; A's non-group list for B shows E; `POST /friends` for B (by email) now returns 200, not 201 |
+| 60 | POST /friends on an implicit friend | A, B share G, no explicit row. A calls `POST /friends` with B's email | 201, `is_new_user` false, 1 new `friendships` row (A-B `active`); a second call -> 200 with no new row; A's list still has B once; `DELETE /friends/B` -> 409 while G is shared |
+| 61 | Pairwise, exact creditor totals (§4.2) | One expense: A, B, C each paid 1; D owes 1, E owes 2 (nets A +1, B +1, C +1, D −1, E −2) | E→A 1, E→B 1, D→C 1 (the old per-debtor rule gave D→A 1, E→A 1, E→B 1 and left C at 0). Each creditor receives exactly 1; D pays 1; E pays 2. Re-running with the participants in another canonical order changes only who gets which unit, never a total |
+| 62 | Delete with a departed member | Group G = {A, B, C}; E1 (A paid 9000, equal A, B, C); B settles to 0 and leaves (204). A calls `DELETE /expenses/E1` | 409 EXPENSE_HAS_DEPARTED_MEMBER; E1 not deleted, version unchanged; also 409 for `PATCH`; a payer who left (B paid, A and C participants) gives the same 409 |
+| 63 | Restore with a departed member | E1 deleted by A while B is still a member (200); B settles to 0 and leaves; A calls `POST /expenses/E1/restore` | 409 EXPENSE_HAS_DEPARTED_MEMBER; E1 stays deleted; balances unchanged |
+| 64 | Rejoin re-enables | Continue vector 63; B is re-added to G (`left_at` null again); A calls restore | 200, E1 live, balances as before the delete; with B gone again, `DELETE` returns 409 |
+| 65 | Restore a non-group expense after friend removal | A, B explicit friends, no shared group; non-group E (A paid 6000, equal A, B). `DELETE /friends/B` (204, E soft-deleted). A calls `POST /expenses/E/restore`. Then `POST /friends` for B, and restore again | first restore 409 EXPENSE_HAS_DEPARTED_MEMBER, E stays deleted; after the friend is re-added: 200 and B owes A 3000. Variant: instead of re-adding, A and B join a new live group G: restore -> 200; after G is deleted they are explicit friends (§10.1a) and restore still works |
+| 66 | Settlement, same rule (S5) | Group settlement S (B paid A 1000); B leaves at 0 net after other settling; A calls PATCH, DELETE, then restore on S | each 409 EXPENSE_HAS_DEPARTED_MEMBER; after B rejoins, 200. A deleted non-group settlement whose pair is no longer friends: restore 409 |
+| 67 | Group balances availability | Member A: `GET /groups/G/balances`; unknown id; non-member; A after G is soft-deleted | 200 with `GroupBalances`; 404 NOT_FOUND for the unknown id; 403 FORBIDDEN for a non-member (and for a member who left); 200 for the soft-deleted group, read-only, same as `GET /groups/{id}` |
 
 Notes for QA:
 - Yearly recurrence anchors on the anchor date: Feb 29 falls back to Feb 28 in non-leap years and returns to Feb 29 in the next leap year (vector 37).

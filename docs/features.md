@@ -57,7 +57,8 @@ Abbreviations: "the reference app" = the analysed APK. "Pro" = its paid tier. Ou
 2. Given a wrong password, When login is submitted, Then the API returns 401 with code `INVALID_CREDENTIALS` and the app shows one combined "email or password incorrect" error without saying which one was wrong.
 3. Given an empty email or empty password, When Log in is tapped, Then no request is sent and the empty field is marked.
 4. Given a logged-in user, When they tap Log out on SCR-11 and confirm, Then both tokens are deleted on the device, the refresh token is revoked on the server (a later refresh with it returns 401), and SCR-02 is shown.
-5. Given 5 failed logins for one email within 15 minutes, When a 6th is attempted, Then the API returns 429 for 15 minutes. (**decision**)
+5. Given 5 failed logins for one email within 15 minutes, When a 6th is attempted (even with the correct password), Then the API returns 429 with `retry_after_seconds` until the oldest failure leaves the window. (**owner decision 2026-11-09, OQ-38**; business_rules §11.2)
+6. Given a refresh token revoked by logout, When it is presented to `/auth/refresh`, Then the API returns 401 `TOKEN_INVALID` and the user's other devices stay signed in (business_rules §11.1).
 
 **Evidence:** login fragment, the combined incorrect-credentials error, and the empty-email / empty-password errors observed (static).
 
@@ -130,11 +131,12 @@ Abbreviations: "the reference app" = the analysed APK. "Pro" = its paid tier. Ou
 
 **Acceptance criteria**
 1. Given the user is owed 50000 paise by Ravi and owes 12000 paise to Meera (both INR), When SCR-08 opens, Then Ravi's row shows "owes you 500.00", Meera's row shows "you owe 120.00", and the header shows overall "you owe 120.00 and are owed 500.00".
-2. Given a friend's balance has been 0 in every currency for more than 30 days, When SCR-08 opens, Then that friend is hidden behind a "show N settled-up friends" row, and tapping it reveals them.
+2. Given a friend's balance has been 0 in every currency for more than 30 days, When SCR-08 opens, Then that friend is hidden behind a "show N settled-up friends" row ("show 1 settled-up friend" when N is 1), and tapping it reveals them.
 3. Given the filter "friends who owe you" is chosen, When the list renders, Then only friends with a positive balance for the user are shown, and a "no friends owe you" empty state appears if there are none.
 4. Given a friend has balances in 2 currencies (500 INR owed to the user, 10 USD owed by the user), When the row renders, Then both amounts are listed separately and never summed.
+5. Given A and B were friends only through group G, When G ends for them (either leaves, one removes the other, or G is deleted) and they share no other group, Then B stays in A's list (and A in B's) with the same non-group balance, as an explicit friend (OQ-37a, business_rules §10.1a).
 
-**Evidence:** friends-list layout, balance-filter options layout (all / outstanding / owe you / you owe), the "hiding friends settled up over one month" text and "show N settled-up friends" row observed (static). Exact 1-month rule: OQ-08.
+**Evidence:** friends-list layout, balance-filter options layout (all / outstanding / owe you / you owe), the "hiding friends settled up over one month" text and "show N settled-up friends" row observed (static; our wording uses the singular for N = 1). Exact 1-month rule: OQ-08.
 
 ---
 
@@ -177,8 +179,11 @@ Abbreviations: "the reference app" = the analysed APK. "Pro" = its paid tier. Ou
 - **Free or premium:** free
 
 **Acceptance criteria**
-1. Given A and B share 0 groups, When A removes B, Then the friendship is soft-deleted, every non-group expense between only A and B is soft-deleted, and B gets no email or push but sees an activity entry.
-2. Given A and B share 1 group, When A tries to remove B, Then the API returns 409 `SHARED_GROUPS_EXIST` and the app lists the shared group.
+1. Given A and B share 0 groups, When A removes B, Then the friendship is soft-deleted, every non-group expense and every non-group settlement between only A and B is soft-deleted (OQ-37b), and B gets no email or push but sees an activity entry.
+2. Given A and B share 1 group, When A tries to remove B, Then the API returns 409 `SHARED_GROUPS_EXIST` and the app lists the shared group. This also applies when B is a friend only because of the shared group (no stored friendship, OQ-33).
+2a. Given A and B share 0 groups and have a non-zero non-group balance, When A confirms the removal after the warning dialog, Then the API returns 204 and the non-group expenses and settlements are deleted; a balance never blocks removal (OQ-32).
+2b. Given A and B were friends only through group G and G has ended for them (OQ-37a), When A opens B, Then B is an explicit friend and A can remove B (204, subject to AC1 and AC2a); if they share another group, 409 `SHARED_GROUPS_EXIST` applies first, even if an explicit friendship exists.
+2c. Given A and B share group G with no explicit friendship, When A adds B with `POST /friends`, Then the API returns 201 and creates the explicit friendship; a repeat returns 200 (OQ-37c).
 3. (V2) Given A blocks B, When B later adds a non-group expense with A, Then A gets no notification and the expense is hidden from A's feeds.
 
 **Evidence:** friendship-settings layout with a shared-groups list, "cannot delete friend while in shared groups" text, the remove explanation (non-group expenses deleted, they see it in activity, no email or push) and the block explanation observed (static).
@@ -241,7 +246,8 @@ Abbreviations: "the reference app" = the analysed APK. "Pro" = its paid tier. Ou
 1. Given Ravi's balance in G is 0 INR and 0 USD, When a member removes Ravi, Then `group_members.left_at` is set, Ravi no longer sees G, and his past expenses remain.
 2. Given Ravi's balance in G is -1 paise (owes 1 paise), When anyone tries to remove him, Then the API returns 409 `OUTSTANDING_BALANCE` and the app explains the debts must be settled first.
 3. Given the user's own balance is +2500 paise, When they tap Leave group, Then the API returns 409 `OUTSTANDING_BALANCE`.
-4. Given an expense includes a member who has left, When anyone tries to edit it, Then the API returns 409 `EXPENSE_HAS_DEPARTED_MEMBER`. Deleting it is still allowed.
+4. Given an expense includes a payer or participant who has left, When anyone tries to edit, delete or restore it, Then the API returns 409 `EXPENSE_HAS_DEPARTED_MEMBER` (revised 2026-11-11, OQ-43: delete and restore are blocked too, because they would change the leaver's balance after the guard let them go at 0). If that member rejoins, all three work again.
+5. Given Ravi leaves G (or is removed) and he and member Meera share no other group, When the call succeeds, Then in the same transaction they become explicit friends (one `active` friendship, no activity entry, no notification) and each stays in the other's friend list; a pair that still shares another group is unchanged. A refused call (409) changes nothing (OQ-37a, business_rules §10.1a).
 
 **Evidence:** "can't leave/remove with outstanding debts" alerts and the "expense involves someone who left, can no longer be edited" error observed (static).
 
@@ -255,6 +261,7 @@ Abbreviations: "the reference app" = the analysed APK. "Pro" = its paid tier. Ou
 
 **Acceptance criteria**
 1. Given group G with 3 members, When a member deletes G and confirms twice, Then `groups.deleted_at` is set, G disappears for all 3 members, and its expenses no longer count in any balance.
+1a. Given G is deleted, When the call succeeds, Then every pair of its members that shares no other non-deleted group becomes explicit friends in the same transaction (no activity entry, no notification), so nobody vanishes from anyone's friend list (OQ-37a, business_rules §10.1a).
 2. (V2) Given G was deleted, When a former member restores it from the activity entry, Then `deleted_at` is cleared and every balance is exactly what it was before the delete.
 
 **Evidence:** "absolutely sure, removes for ALL users" confirmation and an undelete-group action observed (static).
@@ -456,7 +463,7 @@ Abbreviations: "the reference app" = the analysed APK. "Pro" = its paid tier. Ou
 **Acceptance criteria**
 1. Given expense E (9000, equal among A, B, C) and A's group balance +6000, When B edits E to 12000, Then splits become 4000 × 3, A's balance becomes +8000, and 1 `expense.updated` activity entry is created with the before and after totals.
 2. Given two clients edit E, When the second sends a stale `version`, Then the API returns 409 `VERSION_CONFLICT`.
-3. Given E includes a departed member, Then editing is refused (F-15 AC4).
+3. Given E includes a departed member, Then editing (and deleting or restoring) is refused with 409 `EXPENSE_HAS_DEPARTED_MEMBER` (F-15 AC4, OQ-43).
 
 **Evidence:** edit-expense key, "expense updated/deleted" notification channel and the departed-member edit block observed (static). Who may edit: OQ-13.
 
@@ -473,6 +480,8 @@ Abbreviations: "the reference app" = the analysed APK. "Pro" = its paid tier. Ou
 2. Given E was deleted, When A taps Restore, Then the balances are exactly as before the delete and 1 `expense.restored` activity entry is created.
 3. Given E is already deleted, When another client deletes it, Then the API returns 409 `ALREADY_DELETED`. Restoring an expense that isn't deleted returns 409 `NOT_DELETED`.
 4. Given a deleted expense, When a comment is attempted, Then it is refused until the expense is restored.
+5. Given a group expense includes a payer or participant who has left, When anyone deletes or restores it, Then the API returns 409 `EXPENSE_HAS_DEPARTED_MEMBER` (F-15 AC4, OQ-43).
+6. Given a non-group expense was soft-deleted when the two people stopped being friends, When either taps Restore and they are still not friends (no active explicit friendship, no shared live group), Then the API returns 409 `EXPENSE_HAS_DEPARTED_MEMBER`; once they are friends again, Restore works.
 
 **Evidence:** "delete for ALL people involved" confirmation, undelete actions, "already deleted / already restored" errors, "deleted by X on DATE" labels and "restore to add a comment" observed (static).
 
@@ -578,7 +587,7 @@ Abbreviations: "the reference app" = the analysed APK. "Pro" = its paid tier. Ou
 1. Given expense E, When A posts "paid in cash" (≤ 1000 characters; **decision**), Then it appears under E for all participants and 1 notification goes to each other participant.
 2. Given an empty or whitespace-only comment, When Send is tapped, Then nothing is sent.
 3. Given B edits E's amount, When A opens E, Then a system comment describes the change (old total → new total).
-4. Given A deletes their own comment, Then it is removed. Deleting someone else's comment returns 403.
+4. Given A deletes their own comment, Then it is removed. Deleting someone else's comment returns 403. (No delete-comment endpoint exists in the contract yet; progress.md, decision D-C. Not in any slice until decided.)
 
 **Evidence:** expense-details cells for the current user's comment, another user's comment and a system comment, the comment bar fragment, "N new comments" and the comments notification channel observed (static).
 
@@ -787,7 +796,7 @@ Abbreviations: "the reference app" = the analysed APK. "Pro" = its paid tier. Ou
 **Acceptance criteria**
 1. Given the default currency is INR, When the user picks USD, Then `PATCH /users/me` saves `default_currency=USD` and new non-group expenses default to USD. Existing expenses keep their currency.
 2. Given a new email already used by another account, When saved, Then the API returns 409.
-3. Given an avatar over 5 MB, When uploaded, Then the API returns 413.
+3. Given an avatar over 5 MB, When uploaded, Then the API returns 413. (No avatar upload endpoint exists in the contract yet; progress.md, decision D-C. Not in any slice until decided.)
 
 **Evidence:** account tab layout, avatar helper, country picker, "I use X as my currency" and device-settings activity observed (static).
 

@@ -119,7 +119,7 @@ graph TD
 |---|---|---|
 | Tap Sign up | – | SCR-03 |
 | Tap Log in | – | SCR-04 |
-| Tap Google (V2) | OAuth → `/auth/google` | SCR-07 |
+| Tap Google (V2) | OAuth → `/auth/google` (**not yet in the contract**; deferred, see tasks.md) | SCR-07 |
 
 **States:** no loading state; an error toast if Google is cancelled.
 **Evidence:** logged-out home activity observed (static).
@@ -233,7 +233,7 @@ graph TD
 | Tab bar | 4 tabs | – | Friends, Groups, Activity, Account; the last tab is remembered |
 | Add expense | floating button | – | hidden on Account |
 | Search icon | icon | – | V2, gated (F-47) |
-| Activity badge | counter | – | unread activity count, capped at "99+" |
+| Activity badge | counter | – | `unread_count` from `GET /activity` (decided 2026-11-09, OQ-36); the server does not cap it, the client shows the number up to 99 and "99+" above 99; hidden at 0. Refreshed on launch, on foreground and after `POST /activity/read`; opening the Activity tab (SCR-10) calls `POST /activity/read` and sets the badge to 0 |
 
 **Actions**
 | Action | Result | Navigates to |
@@ -258,14 +258,14 @@ graph TD
 | Overall summary | text | – | per currency: "you owe X" / "you are owed Y" / both / "settled up" |
 | Filter | menu | – | all / outstanding / owe me / I owe |
 | Friend row | avatar, name, balance per currency, per-group breakdown | – | green when owed to the user, orange when the user owes (our colours) |
-| Settled-up collapse row | row | – | "show N settled-up friends", for friends at 0 for > 30 days |
+| Settled-up collapse row | row | – | "show N settled-up friends" ("show 1 settled-up friend" when N is 1), for friends at 0 for > 30 days |
 | Add friend | button | – | → SCR-21 |
 
 **Actions**
 | Action | Result | Navigates to |
 |---|---|---|
 | Tap a friend | – | SCR-19 |
-| Change filter | list filtered on the client | – |
+| Change filter | list filtered on the client from the cached `GET /friends` response (`?filter=` also exists server-side) | – |
 | Pull to refresh | GET `/friends` | – |
 
 **States:** empty: illustration and "add your first friend". Filter with no results: "no friends match".
@@ -282,9 +282,9 @@ graph TD
 | Element | Type | Required | Validation / notes |
 |---|---|---|---|
 | Overall summary | text | – | same as SCR-08 |
-| Group row | avatar, name, user's balance per currency, top 2 member-level lines | – | – |
+| Group row | avatar, name, user's balance per currency | – | member-level lines are not shown (`GroupSummary` has no such field; possible V2 addition, OQ-45) |
 | "Non-group expenses" row | row | – | the user's non-group total |
-| Settled-up collapse | row | – | groups at 0 for > 30 days |
+| Settled-up collapse | row | – | groups at 0 for > 30 days; "show N settled-up groups" ("show 1 settled-up group" when N is 1) |
 | Start a new group | button | – | → SCR-12 |
 
 **Actions**
@@ -367,7 +367,7 @@ graph TD
 | Group image | image picker | no | ≤ 5 MB |
 | Type | segmented: home / trip / couple / other | yes | default other |
 | Trip dates | date range | no | only for trip; end ≥ start |
-| Members | chips → SCR-21 | no | 0–200 other members (**decision**) |
+| Members | chips → SCR-21 | no | 0–199 other members; 200 members in total including the creator (**decision**, D6) |
 | Simplify debts | switch | – | default on (OQ-09) |
 
 **Actions**
@@ -392,7 +392,7 @@ graph TD
 |---|---|---|---|
 | Header | name, image, user's balance lines per member | – | at most 3 lines, then "+N more" |
 | Action row | buttons: Settle up, Balances, Totals, Charts, Export | – | Totals, Charts and Export gated (F-46) |
-| Expense list | rows grouped by month: date, description, payer + amount, user's effect | – | payment rows styled differently |
+| Timeline list | rows grouped by month: date, description, payer + amount, user's effect | – | one list from `GET /groups/{id}/timeline` (decided 2026-11-09, OQ-35): items with `kind: expense` render as expense rows, `kind: settlement` as payment rows (styled differently); no client-side merging; infinite scroll with `next_cursor` |
 | Settled-up marker | row | – | "everything before this date is settled; tap to show" |
 | Add expense | floating button | – | prefilled with this group |
 
@@ -405,6 +405,7 @@ graph TD
 | Tap Balances | – | SCR-15 |
 | Tap Totals | – | SCR-16 or SCR-39 |
 | Tap settings icon | – | SCR-14 |
+| Scroll to end | GET `/groups/{id}/timeline?cursor=` | – |
 
 **States:** empty with 1 member: "add people" button. Empty with members: "no expenses yet". All settled: "you are all settled up in this group".
 **Evidence:** group screen and layout, add-people button layout, no-members and settled-up views observed (static).
@@ -427,8 +428,8 @@ graph TD
 | Default split (personal) | row | – | V2, F-27 |
 | Whiteboard | row | – | → SCR-41 (Later) |
 | Premium section | settle-up reminders, balance alert, convert currency, export | – | gated |
-| Leave group | destructive | – | refused if the balance ≠ 0 |
-| Delete group | destructive | – | 2-step confirmation |
+| Leave group | destructive | – | refused if the balance ≠ 0. After a successful leave the other members stay in the user's friend list (OQ-37a); optional one-line hint in the confirm dialog: "You will stay friends with the other members." |
+| Delete group | destructive | – | 2-step confirmation. Members stay in each other's friend lists (OQ-37a); optional hint in the second step: "Members stay on your friends list." After a leave or delete the client invalidates the friends query (`listFriends`, `getFriend`) |
 
 **Actions**
 | Action | Result | Navigates to |
@@ -484,7 +485,7 @@ graph TD
 **Actions**
 | Action | Result | Navigates to |
 |---|---|---|
-| Change period | GET `/groups/{id}/totals?from=&to=` | – |
+| Change period | GET `/groups/{id}/totals?from=&to=` (Later; **not yet in the contract**) | – |
 
 **States:** free user → SCR-39.
 **Evidence:** group totals screen and layout, date-range picker modal observed (static).
@@ -533,7 +534,7 @@ graph TD
 | 410 | "invite no longer valid" | SCR-07 |
 | Logged in as a different email than invited | "merge accounts?" dialog | – |
 
-**States:** loading the invite preview.
+**States:** loading the invite preview (needs a preview endpoint that is **not yet in the contract**; progress.md, decision D-C).
 **Evidence:** group invite acceptance fragment and list item, the not-in-list layout and merge-accounts layout observed (static).
 
 ---
@@ -572,14 +573,14 @@ graph TD
 | Element | Type | Required | Validation / notes |
 |---|---|---|---|
 | Shared groups | list | – | tap → SCR-13 |
-| Remove friend | destructive | – | refused while there are shared groups |
+| Remove friend | destructive | – | refused while there are shared groups, even if an explicit friendship exists; the 409 dialog lists the groups and says to leave them first. Once the last shared group has ended the person is an explicit friend and removal is allowed (OQ-33, OQ-37a). The app never needs to tell the user a friend was kept: no toast or notice is shown when a group ends. **Never blocked by a balance (OQ-32):** the confirmation dialog must warn that non-group expenses, non-group payments and any balance with this person will be deleted (OQ-37b), showing the current non-group balance if non-zero |
 | Block | destructive | – | V2 |
 | Convert non-group to default currency | row | – | Later, gated |
 
 **Actions**
 | Action | Result | Navigates to |
 |---|---|---|
-| Remove → confirm | DELETE `/friends/{user_id}` | SCR-08 |
+| Remove → warning dialog → confirm | DELETE `/friends/{user_id}` | SCR-08 |
 | 409 shared groups | dialog listing the groups | – |
 
 **States:** n/a.
@@ -624,7 +625,7 @@ graph TD
 | Description | text | yes | 1–200 chars |
 | Category button | icon → SCR-25 | no | default uncategorized |
 | Currency button | code → SCR-26 | yes | default = group currency, else the user's |
-| Amount | money input | yes | > 0, ≤ 99,999,999.99, decimals ≤ the currency exponent |
+| Amount | money input | yes | 1 ≤ amount_minor ≤ 9,999,999,999 (99,999,999.99 in a 2-decimal currency), decimals ≤ the currency exponent |
 | Paid by / split summary | tappable sentence "paid by X and split Y" | yes | → SCR-24 / SCR-23 |
 | Date | chip → SCR-27 | yes | default today |
 | Group chip | chip | no | change group |
@@ -796,7 +797,7 @@ graph TD
 | Restore | POST `/expenses/{id}/restore` | – |
 | Send comment | POST `/expenses/{id}/comments` | – |
 
-**States:** a 404 for a removed expense → "cannot find expense" and back.
+**States:** a 404 for a removed expense → "cannot find expense" and back. A 409 `EXPENSE_HAS_DEPARTED_MEMBER` on Edit, Delete or Restore (a payer or participant left the group, or, for a non-group expense being restored, the two people are no longer friends) → message "Someone in this expense is no longer in the group or no longer your friend, so it cannot be changed or restored", no state change, the screen keeps showing the current server state (OQ-43).
 **Evidence:** expense details fragment, top section, comment cells, charts cell and comment bar observed (static).
 
 ---
@@ -830,7 +831,7 @@ graph TD
 | Element | Type | Required | Validation / notes |
 |---|---|---|---|
 | From → To | two avatars, swappable | yes | from ≠ to |
-| Amount | money | yes | > 0, ≤ 99,999,999.99 |
+| Amount | money | yes | 1 ≤ amount_minor ≤ 9,999,999,999 |
 | Currency | code | yes | default = the balance's currency |
 | Date | date | yes | default today |
 | Group | chip | no | null = non-group |
@@ -1002,7 +1003,7 @@ graph TD
 
 | Action | Result | Navigates to |
 |---|---|---|
-| Buy | Play Billing → POST `/subscriptions/verify` | back with the feature unlocked |
+| Buy | Play Billing → verify the purchase on the server (`/subscriptions/verify` is **not yet in the contract**; progress.md, decision D-C) | back with the feature unlocked |
 | Restore | query purchases | toast "restored" or "none found" |
 
 **States:** offline: "can't upgrade right now".
@@ -1061,7 +1062,7 @@ graph TD
 
 | Action | Result | Navigates to |
 |---|---|---|
-| Scan a valid code | confirmation dialog → POST `/friends/by-code` | SCR-19 |
+| Scan a valid code | confirmation dialog → `POST /friends` with `friend_code`. The name shown in the dialog needs a code-lookup endpoint that is **not yet in the contract** (progress.md, decision D-C) | SCR-19 |
 
 **States:** permission denied → explanation + settings link.
 **Evidence:** scan code activity, pager adapter, my-code layout observed (static).
