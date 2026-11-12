@@ -10,7 +10,11 @@ import {
 import type { TimelineItem } from '../api/generated/model';
 import { useAuth } from '../auth/AuthContext';
 import type { MainStackParamList } from '../navigation/types';
-import { BalanceLines } from '../components/BalanceLines';
+import {
+  BalanceLines,
+  MemberNetLines,
+  visibleLines,
+} from '../components/BalanceLines';
 import { ErrorView, LoadingView } from '../components/StateViews';
 import { ExpenseRow, monthLabel } from '../expenses/ExpenseRow';
 import { useNameOf } from '../expenses/useNames';
@@ -120,6 +124,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   }
 
   const members = group.members.filter(m => !m.left_at);
+  const memberLines = members.filter(m => visibleLines(m.balances).length > 0);
   const header = (
     <View>
       <Text accessibilityRole="header" style={styles.title}>
@@ -130,6 +135,25 @@ export function GroupDetailScreen({ navigation, route }: Props) {
         {members.length === 1 ? 'member' : 'members'}
       </Text>
       <BalanceLines lines={group.my_balances ?? []} />
+      {memberLines.slice(0, 3).map(m => (
+        <View key={m.user.id} style={styles.memberLine}>
+          <Text>{m.user.id === user?.id ? 'You' : m.user.name}</Text>
+          <MemberNetLines
+            lines={m.balances}
+            isViewer={m.user.id === user?.id}
+          />
+        </View>
+      ))}
+      {memberLines.length > 3 ? (
+        <Text style={styles.meta}>+{memberLines.length - 3} more</Text>
+      ) : null}
+      {memberLines.length === 0 && rows.length > 0 ? (
+        <Text style={styles.meta}>You are all settled up in this group</Text>
+      ) : null}
+      <Button
+        title="Balances"
+        onPress={() => navigation.navigate('GroupBalances', { groupId })}
+      />
 
       <Text style={styles.section}>Members</Text>
       {members.map(m => (
@@ -243,6 +267,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: '700' },
   meta: { color: '#666', marginBottom: 8 },
   section: { fontSize: 16, fontWeight: '600', marginTop: 20, marginBottom: 6 },
+  memberLine: { flexDirection: 'row', justifyContent: 'space-between' },
   member: { paddingVertical: 6, fontSize: 15 },
   month: { fontWeight: '700', marginTop: 14, marginBottom: 2, color: '#444' },
   payment: { fontStyle: 'italic', color: '#666', paddingVertical: 10 },

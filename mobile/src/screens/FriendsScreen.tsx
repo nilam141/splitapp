@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  AppState,
   Button,
   FlatList,
   Pressable,
@@ -7,7 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useListFriends } from '../api/generated/splitapp';
 import type { Friend } from '../api/generated/model';
@@ -34,13 +35,26 @@ export function FriendsScreen() {
   const [filter, setFilter] = useState<FriendFilter>('all');
   const [showSettled, setShowSettled] = useState(false);
 
+  // The 30-day settled-up rule depends on the clock: re-read it on focus, on
+  // return to foreground and on pull-to-refresh (no polling timer).
+  const [now, setNow] = useState(() => Date.now());
+  useFocusEffect(useCallback(() => setNow(Date.now()), []));
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') {
+        setNow(Date.now());
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
   const friends: Friend[] = useMemo(
     () => (query.data?.status === 200 ? query.data.data.items : []),
     [query.data],
   );
   const { visible, collapsed, matching } = useMemo(
-    () => splitFriends(friends, filter, Date.now()),
-    [friends, filter],
+    () => splitFriends(friends, filter, now),
+    [friends, filter, now],
   );
   const add = () => nav.navigate('AddPeople', { mode: { kind: 'friend' } });
 
@@ -75,7 +89,10 @@ export function FriendsScreen() {
         data={rows}
         keyExtractor={f => f.user.id}
         refreshing={query.isRefetching}
-        onRefresh={() => query.refetch()}
+        onRefresh={() => {
+          setNow(Date.now());
+          query.refetch().catch(() => undefined);
+        }}
         ListHeaderComponent={
           <View>
             <Text style={styles.summary}>Overall: {summary}</Text>
@@ -121,7 +138,7 @@ export function FriendsScreen() {
         ListFooterComponent={
           collapsed.length > 0 && !showSettled ? (
             <Button
-              title={`Show ${collapsed.length} settled-up friends`}
+              title={`Show ${collapsed.length} settled-up ${collapsed.length === 1 ? 'friend' : 'friend' + 's'}`}
               onPress={() => setShowSettled(true)}
             />
           ) : undefined

@@ -80,7 +80,10 @@ export function GroupsScreen() {
             <View>
               <Text style={styles.name}>{item.name}</Text>
               {item.member_count !== undefined ? (
-                <Text style={styles.meta}>{item.member_count} members</Text>
+                <Text style={styles.meta}>
+                  {item.member_count}{' '}
+                  {item.member_count === 1 ? 'member' : 'members'}
+                </Text>
               ) : null}
             </View>
             <BalanceLines lines={item.my_balances} />
@@ -96,7 +99,7 @@ export function GroupsScreen() {
             ) : null}
             {collapsed.length > 0 && !showSettled ? (
               <Button
-                title={`Show ${collapsed.length} settled-up groups`}
+                title={`Show ${collapsed.length} settled-up ${collapsed.length === 1 ? 'group' : 'groups'}`}
                 onPress={() => setShowSettled(true)}
               />
             ) : null}

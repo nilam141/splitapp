@@ -1,0 +1,103 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`S4-M-1 per-currency balance lines (snapshots) 1 currency 1`] = `
+<View>
+  <Text
+    style={
+      {
+        "color": "#1b7f3b",
+      }
+    }
+  >
+    owes you 
+    INR 120.50
+  </Text>
+</View>
+`;
+
+exports[`S4-M-1 per-currency balance lines (snapshots) 2 currencies, never summed 1`] = `
+<View>
+  <Text
+    style={
+      {
+        "color": "#1b7f3b",
+      }
+    }
+  >
+    owes you 
+    INR 120.50
+  </Text>
+  <Text
+    style={
+      {
+        "color": "#c25e00",
+      }
+    }
+  >
+    you owe 
+    USD 3.00
+  </Text>
+</View>
+`;
+
+exports[`S4-M-1 per-currency balance lines (snapshots) 3 currencies, ordered by code, 0-decimal JPY 1`] = `
+<View>
+  <Text
+    style={
+      {
+        "color": "#1b7f3b",
+      }
+    }
+  >
+    owes you 
+    INR 120.50
+  </Text>
+  <Text
+    style={
+      {
+        "color": "#1b7f3b",
+      }
+    }
+  >
+    owes you 
+    JPY 1,200
+  </Text>
+  <Text
+    style={
+      {
+        "color": "#c25e00",
+      }
+    }
+  >
+    you owe 
+    USD 5.00
+  </Text>
+</View>
+`;
+
+exports[`S4-M-1 per-currency balance lines (snapshots) member net variant with 2 currencies 1`] = `
+<View>
+  <Text
+    style={
+      {
+        "color": "#1b7f3b",
+      }
+    }
+  >
+    gets back 
+    INR 120.50
+     in total
+  </Text>
+  <Text
+    style={
+      {
+        "color": "#c25e00",
+      }
+    }
+  >
+    owes 
+    USD 3.00
+     in total
+  </Text>
+</View>
+`;

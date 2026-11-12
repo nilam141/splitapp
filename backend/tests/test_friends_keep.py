@@ -9,7 +9,7 @@ Notes on test seams:
   (`deleted_at = NULL`). Restore must not touch friendships, so this is the same observable state.
 - Vector 55: the balance guard `member_balances` is stubbed to 0 until S4-B-3. The test seeds B's debt by patching
   that function (`app.services_groups.member_balances`); the patch still works after S4-B-3 only if that name stays.
-  A real-balance variant is skipped with a reason referencing S4-B-3.
+  The real-balance variant (no stub) is `test_vector_55_with_real_debt_after_s4_b_3`, active since S4-Q-1.
 - Activity: S2-B-6 already writes `group.member_removed` / `group.deleted` rows. The tests compare activity_log,
   activity_recipients and notifications before/after and require that only those rows appear.
 """
@@ -210,11 +210,29 @@ def test_vector_55_remove_member_materializes_and_refused_removal_writes_nothing
     _assert_only_normal_activity(db_session, before, ["group.member_removed"])
 
 
-@pytest.mark.skip(reason="waits for S4-B-3 (real group balances replace the stubbed guard `member_balances`). Group "
-                         "expenses exist since S3, but B's debt only blocks removal once the guard reads them. The "
-                         "409-writes-nothing half is covered above through the stub.")
-def test_vector_55_with_real_debt_after_s4_b_3():
-    raise AssertionError("write once expenses and the real balance guard exist")
+def test_vector_55_with_real_debt_after_s4_b_3(client, db_session):
+    """Vector 55 with a real debt (no stub): B owes 1 INR through a group expense; the guard must read it."""
+    from tests.expense_helpers import create_group_expense
+
+    a, b, c = (_user(client, n) for n in ("Asha", "Ravi", "Meera"))
+    g = _group(client, a, [b, c])
+    body = {"description": "Pen", "total": {"amount_minor": 1, "currency": "INR"}, "expense_date": "2026-11-05",
+            "payers": [{"user_id": _uid(a), "paid_amount_minor": 1}],
+            "split": {"type": "exact", "entries": [{"user_id": _uid(b), "value": 1}]}}
+    create_group_expense(client, a, g, body)  # B net -1
+    before = _snap(db_session)
+
+    r = client.delete(f"/groups/{g}/members/{_uid(b)}", headers=_h(a))
+    assert r.status_code == 409 and r.json()["code"] == "OUTSTANDING_BALANCE", r.text
+    assert r.json()["details"]["balances"] == [{"amount_minor": -1, "currency": "INR"}]
+    assert _rows(db_session) == {}
+    _assert_only_normal_activity(db_session, before, [])
+
+    settle = {**body, "payers": [{"user_id": _uid(b), "paid_amount_minor": 1}],
+              "split": {"type": "exact", "entries": [{"user_id": _uid(a), "value": 1}]}}
+    create_group_expense(client, b, g, settle)  # B back to 0
+    assert client.delete(f"/groups/{g}/members/{_uid(b)}", headers=_h(a)).status_code == 204
+    assert _rows(db_session) == {_key(a, b): "active", _key(b, c): "active"}  # A-C still share G
 
 
 # ---- refused calls write nothing ----------------------------------------------------------------------------------
@@ -373,11 +391,22 @@ def test_vector_59_non_group_expense_survives_group_delete(client, db_session):
     assert client.post("/friends", json={"email": "ravi@example.com"}, headers=_h(a)).status_code == 200
 
 
-@pytest.mark.skip(reason="waits for S4 friend balances: GET /friends/{id} still returns balances=[] and breakdown=[] "
-                         "(services_friends). Add: after A deletes G, GET /friends/B shows a non_group breakdown line "
-                         "of 3000 INR (B owes A) for E (A paid 6000, equal A,B).")
-def test_vector_59_non_group_balance_3000_after_s4():
-    raise AssertionError("write once friend balances exist (S4)")
+def test_vector_59_non_group_balance_3000_after_s4(client, db_session):
+    """After A deletes G, GET /friends/B shows the 3000 INR non-group balance (B owes A) for E."""
+    from tests.expense_helpers import create_expense, equal_body
+
+    a, b = _user(client, "Asha"), _user(client, "Ravi")
+    g = _group(client, a, [b])
+    create_expense(client, a, {**equal_body(a, [a, b], total=6000, description="Taxi"), "group_id": None})
+    assert client.delete(f"/groups/{g}", headers=_h(a)).status_code == 204
+    r = client.get(f"/friends/{_uid(b)}", headers=_h(a))
+    assert r.status_code == 200, r.text
+    f = r.json()
+    assert [(x["amount_minor"], x["currency"]) for x in f["balances"]] == [(3000, "INR")]
+    assert [(x["scope"], x["group_id"], [(l["amount_minor"], l["currency"]) for l in x["balances"]])
+            for x in f["breakdown"]] == [("non_group", None, [(3000, "INR")])]
+    fb = client.get(f"/friends/{_uid(a)}", headers=_h(b)).json()
+    assert [(x["amount_minor"], x["currency"]) for x in fb["balances"]] == [(-3000, "INR")]
 
 
 # ---- vector 60 -----------------------------------------------------------------------------------------------------

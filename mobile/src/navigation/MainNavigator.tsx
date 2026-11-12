@@ -6,6 +6,8 @@ import { AddPeopleScreen } from '../screens/AddPeopleScreen';
 import { CreateGroupScreen } from '../screens/CreateGroupScreen';
 import { GroupDetailScreen } from '../screens/GroupDetailScreen';
 import { GroupSettingsScreen } from '../screens/GroupSettingsScreen';
+import { GroupBalancesScreen } from '../screens/GroupBalancesScreen';
+import { SimplifyExplainerScreen } from '../screens/SimplifyExplainerScreen';
 import { ExpenseFormScreen } from '../screens/ExpenseFormScreen';
 import { ExpenseDetailScreen } from '../screens/ExpenseDetailScreen';
 import { FriendDetailScreen } from '../screens/FriendDetailScreen';
@@ -41,6 +43,16 @@ export function MainNavigator() {
         name="GroupSettings"
         component={GroupSettingsScreen}
         options={{ title: 'Group settings' }}
+      />
+      <Stack.Screen
+        name="GroupBalances"
+        component={GroupBalancesScreen}
+        options={{ title: 'Balances' }}
+      />
+      <Stack.Screen
+        name="SimplifyExplainer"
+        component={SimplifyExplainerScreen}
+        options={{ title: 'Simplify debts' }}
       />
       <Stack.Screen
         name="ExpenseForm"

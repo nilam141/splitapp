@@ -366,7 +366,9 @@ components:
           nullable: true
           description: >
             Derived, not stored. When every balance with this friend last became 0. null = a balance is currently
-            non-zero, or there has been no activity yet. The client hides a friend behind "show N settled-up friends"
+            non-zero, or there has been no activity yet. When all balances are zero it is the later of the latest live
+            expense created_at across the shared scopes (including groups the viewer has left, excluding soft-deleted
+            groups) and the time the viewer left that shared group (group_members.left_at). The client hides a friend behind "show N settled-up friends" ("show 1 settled-up friend" when N is 1)
             only when this is non-null and older than 30 days.
       example:
         user: { id: 0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1a0002, name: Ravi, email: ravi@example.com, avatar_url: null, is_registered: true }
@@ -1852,11 +1854,18 @@ paths:
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
         "409":
-          description: Already deleted
+          description: >
+            ALREADY_DELETED, or EXPENSE_HAS_DEPARTED_MEMBER when a payer or participant of a group expense is no
+            longer a current member of the group (deleting would change their balance after they left; business_rules §8).
+            Rejoining the group makes the call work again.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
-              example: { code: ALREADY_DELETED, message: The expense has already been deleted }
+              examples:
+                alreadyDeleted:
+                  value: { code: ALREADY_DELETED, message: The expense has already been deleted }
+                departedMember:
+                  value: { code: EXPENSE_HAS_DEPARTED_MEMBER, message: This expense involves someone who left the group and can no longer be deleted }
 
   /expenses/{id}/restore:
     parameters:
@@ -1872,11 +1881,19 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Expense' }
         "409":
-          description: Not deleted
+          description: >
+            NOT_DELETED, or EXPENSE_HAS_DEPARTED_MEMBER when a payer or participant of a group expense is no longer a
+            current member, or when the expense is a non-group expense whose participants are no longer friends (no
+            active explicit friendship and no shared non-deleted group), for example after the friend was removed
+            (business_rules §8, §10.2). Works again once the member rejoins or the friendship exists again.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
-              example: { code: NOT_DELETED, message: The expense is not deleted }
+              examples:
+                notDeleted:
+                  value: { code: NOT_DELETED, message: The expense is not deleted }
+                departedMember:
+                  value: { code: EXPENSE_HAS_DEPARTED_MEMBER, message: This expense involves someone who is no longer in the group or no longer your friend and cannot be restored }
 
   /expenses/{id}/receipt:
     parameters:
@@ -1964,7 +1981,10 @@ paths:
       tags: [balances]
       operationId: getGroupBalances
       summary: Member nets and suggested transfers for a group
-      description: Transfers are simplified (business_rules §5) when the group's simplify_debts is true, otherwise pairwise (§4.2). Per currency.
+      description: >
+        Transfers are simplified (business_rules §5) when the group's simplify_debts is true, otherwise pairwise (§4.2).
+        Per currency. Also available for a soft-deleted group (read-only, like GET /groups/{id}); only a current member
+        may call it (403 otherwise, including a member who left); an unknown group id returns 404.
       responses:
         "200":
           description: Balances
@@ -1972,6 +1992,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/GroupBalances' }
         "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
 
   /balances:
     get:

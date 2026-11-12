@@ -148,7 +148,7 @@ describe('S2-M-2 Friends tab and Add people', () => {
       screen.getByText(/Overall: you owe USD 3.00, you are owed INR 120.50/),
     ).toBeTruthy();
     expect(screen.queryByText('Old')).toBeNull();
-    await fireEvent.press(screen.getByText('Show 1 settled-up friends'));
+    await fireEvent.press(screen.getByText('Show 1 settled-up friend'));
     expect(await screen.findByText('Old')).toBeTruthy();
 
     await fireEvent.press(screen.getByLabelText('Filter: I owe'));

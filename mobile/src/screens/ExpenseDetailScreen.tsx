@@ -26,6 +26,7 @@ import {
 } from '../api/helpers';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ErrorView, LoadingView } from '../components/StateViews';
+import { DEPARTED_MEMBER_MESSAGE } from '../expenses/messages';
 import { useNameOf } from '../expenses/useNames';
 import { formatMinorAmount } from '../money/format';
 import { useMoney } from '../money/useMoney';
@@ -142,6 +143,12 @@ export function ExpenseDetailScreen({ navigation, route }: Props) {
       const res = await action();
       if (res.status === okStatus) {
         await refresh();
+      } else if (
+        res.status === 409 &&
+        apiErrorOf(res)?.code === 'EXPENSE_HAS_DEPARTED_MEMBER'
+      ) {
+        // No state change and no retry: keep the loaded expense, buttons stay usable.
+        setBanner(DEPARTED_MEMBER_MESSAGE);
       } else if (res.status === 409) {
         await refresh();
         setBanner(

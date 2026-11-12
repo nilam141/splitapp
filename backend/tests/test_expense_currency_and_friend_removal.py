@@ -100,8 +100,15 @@ def test_vector_42_remove_friend_with_balance_is_204_and_soft_deletes_the_expens
     assert _deleted_at(db_session, other["id"]) is None
     assert uid(b) not in _friend_ids(client, a)
     assert uid(a) not in _friend_ids(client, b)
-    # the pair has no balance any more (balances are [] until S4; after S4 the friend row is gone, so 404)
+    # the pair has no balance any more: the friend row is gone (404) and A's overall balances show nothing for B
     assert client.get(f"/friends/{uid(b)}", headers=h(a)).status_code == 404
+    ob = client.get("/balances", headers=h(a))
+    assert ob.status_code == 200, f"GET /balances -> {ob.status_code} (needs S4-B-2): {ob.text}"
+    owed = {(x["amount_minor"], x["currency"]) for x in ob.json()["you_are_owed"]}
+    assert owed == {(2000, "INR")}, "only C's 4000 split equally (2000) remains; B's 3000 is gone"
+    assert uid(b) not in {x["user_id"] for x in ob.json()["by_friend"] if any(l["amount_minor"] for l in x["balances"])}
+    cb = client.get(f"/friends/{uid(c)}", headers=h(a)).json()
+    assert [(x["amount_minor"], x["currency"]) for x in cb["balances"]] == [(2000, "INR")]
     listing = client.get("/expenses", params={"non_group": "true"}, headers=h(a))
     assert listing.status_code == 200
     assert [x["id"] for x in listing.json()["items"]] == [other["id"]]

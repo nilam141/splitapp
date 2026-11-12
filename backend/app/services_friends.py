@@ -1,6 +1,6 @@
 """Friends: explicit friendships UNION users who share a non-deleted group (derived at read time, OQ-33; no rows
 are written for group co-members while the group is live).
-Balances are empty until Slice 4."""
+Balances come from app.services_balances."""
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -9,10 +9,10 @@ from sqlalchemy import or_, select, union, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app import activity, idempotency, outbox, security
+from app import activity, idempotency, outbox, security, services_balances
 from app.errors import ApiError
 from app.models import Expense, ExpensePayer, ExpenseSplit, Friendship, Group, GroupMember, User
-from app.schemas import Friend, FriendCreate, FriendCreated, UserPublic
+from app.schemas import Friend, FriendCreate, FriendCreated, ScopedBalance, UserPublic
 from app.services_auth import NOTIFICATION_KEYS
 
 FILTERS = ("all", "outstanding", "owes_me", "i_owe")
@@ -27,8 +27,13 @@ def pair(a: uuid.UUID, b: uuid.UUID) -> tuple[uuid.UUID, uuid.UUID]:
     return (a, b) if a < b else (b, a)
 
 
-def friend_out(user: User) -> Friend:
-    return Friend(user=UserPublic.model_validate(user), balances=[], breakdown=[], settled_up_since=None)
+def friend_out(user: User, pairs: "services_balances.Pairs | None" = None) -> Friend:
+    """`pairs` carries the viewer's balances with everyone; without it (a brand-new friend) the balances are empty."""
+    if pairs is None:
+        return Friend(user=UserPublic.model_validate(user), balances=[], breakdown=[], settled_up_since=None)
+    total, breakdown, since = services_balances.friend_fields(pairs, user.id)
+    return Friend(user=UserPublic.model_validate(user), balances=total,
+                  breakdown=[ScopedBalance(**b) for b in breakdown], settled_up_since=since)
 
 
 def _matches(friend: Friend, mode: str) -> bool:
@@ -81,7 +86,8 @@ def list_friends(db: Session, me: User, mode: str) -> list[Friend]:
                            User.deleted_at.is_(None), User.id != me.id)
         .order_by(User.name, User.id)
     ).all()
-    return [f for f in (friend_out(u) for u in rows) if _matches(f, mode)]
+    pairs = services_balances.compute_pairs(db, me.id)
+    return [f for f in (friend_out(u, pairs) for u in rows) if _matches(f, mode)]
 
 
 def _explicit_active(db: Session, me: User, other_id: uuid.UUID) -> bool:
@@ -106,7 +112,7 @@ def get_friend(db: Session, me: User, other_id: uuid.UUID) -> Friend:
     user = _visible_friend(db, me, other_id)
     if user is None:
         raise ApiError(404, "NOT_FOUND", "Friend not found")
-    return friend_out(user)
+    return friend_out(user, services_balances.compute_pairs(db, me.id))
 
 
 def _soft_delete_pair_expenses(db: Session, a: uuid.UUID, b: uuid.UUID, actor: uuid.UUID, now: datetime) -> None:
@@ -214,7 +220,8 @@ def _add(db: Session, me: User, req: FriendCreate) -> tuple[int, dict[str, Any]]
         activity.record(db, me.id, "friend.added", "friendship", target.id, None,
                         {"friend_id": str(target.id), "friend_name": target.name, "actor_name": me.name},
                         [me.id, target.id])
-    body = FriendCreated(friend=friend_out(target), is_new_user=is_new).model_dump(mode="json")
+    body = FriendCreated(friend=friend_out(target, None if is_new else services_balances.compute_pairs(db, me.id)),
+                         is_new_user=is_new).model_dump(mode="json")
     return status, body
 
 

@@ -180,12 +180,20 @@ def test_patch_non_group_needs_the_creator_and_friends(client):
 
 # ---- departed member guard ---------------------------------------------------------------------------------------------
 
-def test_editing_an_expense_with_a_departed_participant_is_409_but_delete_and_restore_work(client, g):
+def test_edit_delete_and_restore_with_a_departed_participant_are_409_and_work_again_after_rejoin(client, g):
+    """Revised 2026-11-11 (OQ-43, S4-Q-4): delete and restore are blocked too, like edit."""
     a, b, c, e = g["a"], g["b"], g["c"], g["e"]
+    # C owes 3333 INR; settle C to 0 with an offsetting expense (C pays 3333, only A owes) so the OUTSTANDING_BALANCE guard lets C leave
+    create_group_expense(client, a, g["gid"], equal_body(c, [a], total=3333, description="offset"))
     assert client.delete(f"/groups/{g['gid']}/members/me", headers=h(c)).status_code == 204
     r = patch(client, a, e, description="late edit")
     assert r.status_code == 409 and r.json()["code"] == "EXPENSE_HAS_DEPARTED_MEMBER"
     assert client.get(f"/expenses/{e['id']}", headers=h(a)).json() == e
+    r = client.delete(f"/expenses/{e['id']}", headers=h(a))
+    assert r.status_code == 409 and r.json()["code"] == "EXPENSE_HAS_DEPARTED_MEMBER"
+    assert client.get(f"/expenses/{e['id']}", headers=h(a)).json() == e  # not deleted, version unchanged
+    # rejoining clears left_at: delete and restore work again
+    assert client.post(f"/groups/{g['gid']}/members", json={"user_ids": [uid(c)]}, headers=h(a)).status_code == 200
     assert client.delete(f"/expenses/{e['id']}", headers=h(a)).status_code == 200
     assert client.post(f"/expenses/{e['id']}/restore", headers=h(a)).status_code == 200
     # an expense that never involved the departed member stays editable
@@ -193,12 +201,20 @@ def test_editing_an_expense_with_a_departed_participant_is_409_but_delete_and_re
     assert patch(client, a, other, description="fine").status_code == 200
 
 
-def test_departed_payer_also_blocks_edit(client, g):
+def test_departed_payer_blocks_edit_and_delete(client, g):
     a, b = g["a"], g["b"]
     e = create_group_expense(client, a, g["gid"], {**equal_body(a, [a]), "payers": [
         {"user_id": uid(b), "paid_amount_minor": 10000}]})
+    # B is owed 10000 minus 3333 owed in the fixture expense = 6667; A pays 6667 for B only, so B nets to 0
+    create_group_expense(client, a, g["gid"], equal_body(a, [b], total=6667, description="offset"))
     assert client.delete(f"/groups/{g['gid']}/members/me", headers=h(b)).status_code == 204
     assert patch(client, a, e, description="x").json()["code"] == "EXPENSE_HAS_DEPARTED_MEMBER"
+    r = client.delete(f"/expenses/{e['id']}", headers=h(a))
+    assert r.status_code == 409 and r.json()["code"] == "EXPENSE_HAS_DEPARTED_MEMBER"  # S4-Q-4 (OQ-43)
+    assert client.get(f"/expenses/{e['id']}", headers=h(a)).json() == e
+    assert client.post(f"/groups/{g['gid']}/members", json={"user_ids": [uid(b)]}, headers=h(a)).status_code == 200
+    assert client.delete(f"/expenses/{e['id']}", headers=h(a)).status_code == 200
+    assert client.post(f"/expenses/{e['id']}/restore", headers=h(a)).status_code == 200
 
 
 # ---- delete and restore --------------------------------------------------------------------------------------------------
@@ -267,6 +283,8 @@ def test_removing_a_friend_leaves_group_expenses_alone(client, db_session):
     a, b = user(client, "Asha"), user(client, "Ravi")
     gid = make_group(client, a, [b])
     ge = create_group_expense(client, a, gid, equal_body(a, [a, b], total=6000))
+    # B owes 3000; B pays 3000 for A so B is at 0 and may leave
+    create_group_expense(client, a, gid, equal_body(b, [a], total=3000, description="offset"))
     assert client.delete(f"/groups/{gid}/members/me", headers=h(b)).status_code == 204  # now explicit friends (10.1a)
     ng = create_expense(client, a, equal_body(a, [a, b], total=6000))
     assert client.delete(f"/friends/{uid(b)}", headers=h(a)).status_code == 204

@@ -258,7 +258,7 @@ graph TD
 | Overall summary | text | – | per currency: "you owe X" / "you are owed Y" / both / "settled up" |
 | Filter | menu | – | all / outstanding / owe me / I owe |
 | Friend row | avatar, name, balance per currency, per-group breakdown | – | green when owed to the user, orange when the user owes (our colours) |
-| Settled-up collapse row | row | – | "show N settled-up friends", for friends at 0 for > 30 days |
+| Settled-up collapse row | row | – | "show N settled-up friends" ("show 1 settled-up friend" when N is 1), for friends at 0 for > 30 days |
 | Add friend | button | – | → SCR-21 |
 
 **Actions**
@@ -282,9 +282,9 @@ graph TD
 | Element | Type | Required | Validation / notes |
 |---|---|---|---|
 | Overall summary | text | – | same as SCR-08 |
-| Group row | avatar, name, user's balance per currency, top 2 member-level lines | – | – |
+| Group row | avatar, name, user's balance per currency | – | member-level lines are not shown (`GroupSummary` has no such field; possible V2 addition, OQ-45) |
 | "Non-group expenses" row | row | – | the user's non-group total |
-| Settled-up collapse | row | – | groups at 0 for > 30 days |
+| Settled-up collapse | row | – | groups at 0 for > 30 days; "show N settled-up groups" ("show 1 settled-up group" when N is 1) |
 | Start a new group | button | – | → SCR-12 |
 
 **Actions**
@@ -797,7 +797,7 @@ graph TD
 | Restore | POST `/expenses/{id}/restore` | – |
 | Send comment | POST `/expenses/{id}/comments` | – |
 
-**States:** a 404 for a removed expense → "cannot find expense" and back.
+**States:** a 404 for a removed expense → "cannot find expense" and back. A 409 `EXPENSE_HAS_DEPARTED_MEMBER` on Edit, Delete or Restore (a payer or participant left the group, or, for a non-group expense being restored, the two people are no longer friends) → message "Someone in this expense is no longer in the group or no longer your friend, so it cannot be changed or restored", no state change, the screen keeps showing the current server state (OQ-43).
 **Evidence:** expense details fragment, top section, comment cells, charts cell and comment bar observed (static).
 
 ---

@@ -645,7 +645,8 @@ describe('S3-M-5 Expense detail (SCR-29)', () => {
     expect(screen.getByText('Ravi owes INR 100.00')).toBeTruthy();
     expect(screen.getByText('Thali')).toBeTruthy();
     expect(screen.getByText(/added by You on/)).toBeTruthy();
-    expect(screen.getByText('No comments yet')).toBeTruthy();
+    // the comments query resolves after the 'Comments' heading is shown, so wait for the empty state
+    expect(await screen.findByText('No comments yet')).toBeTruthy();
   });
 
   it('delete -> banner "deleted by..."; restore -> banner gone', async () => {
@@ -660,6 +661,85 @@ describe('S3-M-5 Expense detail (SCR-29)', () => {
     await press('Restore');
     await waitFor(() => expect(screen.queryByText(/^deleted by/)).toBeNull());
     expect(server.count('POST', `/expenses/${e.id}/restore`)).toBe(1);
+  });
+
+  describe('S4-M-3 409 EXPENSE_HAS_DEPARTED_MEMBER (OQ-43)', () => {
+    const MSG =
+      'Someone in this expense is no longer in the group or no longer your friend, so it cannot be changed or restored';
+    const conflict = (
+      method: string,
+      suffix: string,
+      code: string,
+      message = 'server text',
+    ) =>
+      server.overrides.push(req =>
+        req.method === method && req.path.endsWith(suffix)
+          ? { status: 409, body: { code, message } }
+          : undefined,
+      );
+    const confirmDelete = async () => {
+      await press('Delete');
+      const buttons = await screen.findAllByText('Delete');
+      await fireEvent.press(buttons[buttons.length - 1]);
+    };
+
+    it('delete -> 409 shows the message once, expense not shown as deleted, Delete still tappable', async () => {
+      const e = await openDetail();
+      conflict('DELETE', `/expenses/${e.id}`, 'EXPENSE_HAS_DEPARTED_MEMBER');
+      await confirmDelete();
+      expect(await screen.findAllByText(MSG)).toHaveLength(1);
+      expect(screen.queryByText(/^deleted by/)).toBeNull();
+      expect(screen.queryByText('Restore')).toBeNull();
+      expect(screen.getByText('Lunch')).toBeTruthy();
+      expect(screen.getByText('INR 200.00')).toBeTruthy();
+      expect(server.expenses[0].deleted_at ?? null).toBeNull();
+      // still usable: the dialog opens again and a second attempt is sent
+      await confirmDelete();
+      await waitFor(() =>
+        expect(server.count('DELETE', `/expenses/${e.id}`)).toBe(2),
+      );
+      expect(await screen.findAllByText(MSG)).toHaveLength(1);
+    });
+
+    it('restore -> 409 shows the message once, the deleted banner stays, Restore still tappable', async () => {
+      const e = await openDetail();
+      await confirmDelete();
+      await screen.findByText('deleted by You on 2026-11-10');
+      conflict('POST', '/restore', 'EXPENSE_HAS_DEPARTED_MEMBER');
+      await press('Restore');
+      expect(await screen.findAllByText(MSG)).toHaveLength(1);
+      expect(screen.getByText('deleted by You on 2026-11-10')).toBeTruthy();
+      expect(screen.queryByText('Delete')).toBeNull();
+      await press('Restore');
+      await waitFor(() =>
+        expect(server.count('POST', `/expenses/${e.id}/restore`)).toBe(2),
+      );
+      expect(await screen.findAllByText(MSG)).toHaveLength(1);
+      expect(screen.getByText('deleted by You on 2026-11-10')).toBeTruthy();
+    });
+
+    it('ALREADY_DELETED on delete still shows the server message and reloads', async () => {
+      const e = await openDetail();
+      conflict(
+        'DELETE',
+        `/expenses/${e.id}`,
+        'ALREADY_DELETED',
+        'Already gone',
+      );
+      await confirmDelete();
+      expect(await screen.findByText('Already gone')).toBeTruthy();
+      expect(screen.queryByText(MSG)).toBeNull();
+    });
+
+    it('NOT_DELETED on restore still shows the server message and reloads', async () => {
+      await openDetail();
+      await confirmDelete();
+      await screen.findByText('deleted by You on 2026-11-10');
+      conflict('POST', '/restore', 'NOT_DELETED', 'Not deleted');
+      await press('Restore');
+      expect(await screen.findByText('Not deleted')).toBeTruthy();
+      expect(screen.queryByText(MSG)).toBeNull();
+    });
   });
 
   it('cancelling the delete dialog sends nothing', async () => {

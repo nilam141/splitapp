@@ -138,7 +138,8 @@ Common steps for each sub-flow: from SCR-13 tap Add expense → SCR-22 opens wit
 
 **Alternate / error paths**
 - Concurrent edit: C saved first (`version=2`) → B's `PATCH` with `version=1` → 409 `VERSION_CONFLICT` → the app reloads E and shows "this expense changed, review and save again".
-- E involves a member who left G → Edit → 409 `EXPENSE_HAS_DEPARTED_MEMBER`; Delete still allowed.
+- E involves a member who left G → Edit, Delete or Restore → 409 `EXPENSE_HAS_DEPARTED_MEMBER` (OQ-43); the app shows "someone in this expense left the group" and offers no retry. If that member rejoins, the actions work again.
+- A non-group E was deleted when A and B stopped being friends → Restore → 409 `EXPENSE_HAS_DEPARTED_MEMBER` until they are friends again (explicit or via a shared live group).
 - E already deleted by someone else → Delete → 409 `ALREADY_DELETED`; the app refreshes the view.
 - Commenting on a deleted expense → refused: "restore to add a comment".
 - Non-participant D (not in G) tries `PATCH` → 403.

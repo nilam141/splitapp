@@ -296,3 +296,34 @@ class GroupUpdate(BaseModel):
 class MembersAdd(BaseModel):
     user_ids: list[uuid.UUID] = []
     new_members: list[NewMember] = []
+
+
+# ---------- balances ----------
+class Transfer(BaseModel):
+    from_user_id: uuid.UUID
+    to_user_id: uuid.UUID
+    amount_minor: int
+    currency: str
+
+
+class GroupBalanceMember(BaseModel):
+    user_id: uuid.UUID
+    balances: list[BalanceLine]
+
+
+class GroupBalances(BaseModel):
+    group_id: uuid.UUID
+    simplified: bool
+    members: list[GroupBalanceMember]
+    transfers: list[Transfer]
+
+
+class OverallFriend(BaseModel):
+    user_id: uuid.UUID
+    balances: list[BalanceLine]
+
+
+class OverallBalances(BaseModel):
+    you_are_owed: list[BalanceLine]
+    you_owe: list[BalanceLine]
+    by_friend: list[OverallFriend]

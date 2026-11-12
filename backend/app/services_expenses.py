@@ -23,7 +23,7 @@ from app.schemas import UserPublic
 from app.schemas_expenses import (CommentCreate, CommentOut, CommentPage, ExpenseCreate, ExpenseOut, ExpensePage,
                                   ExpensePayerOut, ExpenseSplitOut, ExpenseUpdate, MoneyOut)
 from app.services_friends import _visible_friend
-from app.services_groups import _live_group_for_member, _load_for_member
+from app.services_groups import _live_group_for_member, _load_for_member, lock_group
 from app.splits import SplitError, compute_split, validate_payers, validate_total
 
 _MESSAGES = {
@@ -208,6 +208,7 @@ def _write_rows(db: Session, expense_id: uuid.UUID, payers: Payers, rows: SplitR
 def _create(db: Session, me: User, req: ExpenseCreate, group_id: uuid.UUID | None,
             key: uuid.UUID | None) -> tuple[int, dict[str, Any]]:
     if group_id is not None:
+        lock_group(db, group_id)
         _live_group_for_member(db, me, group_id)
     if req.recurrence is not None:
         raise ApiError(501, "NOT_IMPLEMENTED", "Recurring expenses are not available yet")
@@ -340,8 +341,26 @@ def _has_departed(db: Session, e: Expense, users: set[uuid.UUID]) -> bool:
     return bool(users - active)
 
 
+def _departed_guard(db: Session, e: Expense) -> None:
+    """EXPENSE_HAS_DEPARTED_MEMBER (OQ-43): group expense with a payer/participant who left; non-group expense whose
+    participants are no longer friends of its creator. Caller holds the group lock for group expenses."""
+    known = {u for u, _ in _payers_of(db, e.id)} | {r[0] for r in _splits_of(db, e.id)}
+    if e.group_id is not None:
+        departed = _has_departed(db, e, known)
+    else:
+        creator = db.get(User, e.created_by)
+        departed = creator is not None and any(
+            _visible_friend(db, creator, u) is None for u in known - {e.created_by})
+    if departed:
+        raise ApiError(409, "EXPENSE_HAS_DEPARTED_MEMBER",
+                       "This expense involves someone who left the group or is no longer a friend")
+
+
 def update_expense(db: Session, me: User, expense_id: uuid.UUID, req: ExpenseUpdate) -> ExpenseOut:
     e = _load_visible(db, me, expense_id)
+    if e.group_id is not None:
+        lock_group(db, e.group_id)
+        db.refresh(e)  # the row may have changed while waiting for the lock
     if e.deleted_at is not None:
         raise ApiError(409, "ALREADY_DELETED", "The expense has been deleted")
     if req.version != e.version:
@@ -424,6 +443,12 @@ def delete_expense(db: Session, me: User, expense_id: uuid.UUID) -> ExpenseOut:
     e = _load_visible(db, me, expense_id)
     if e.deleted_at is not None:
         raise ApiError(409, "ALREADY_DELETED", "The expense has already been deleted")
+    if e.group_id is not None:
+        lock_group(db, e.group_id)
+        db.refresh(e)
+        if e.deleted_at is not None:
+            raise ApiError(409, "ALREADY_DELETED", "The expense has already been deleted")
+        _departed_guard(db, e)
     now = _now()
     res = db.execute(update(Expense).where(Expense.id == e.id, Expense.deleted_at.is_(None))
                      .values(deleted_at=now, deleted_by=me.id, version=Expense.version + 1, updated_at=now))
@@ -439,6 +464,12 @@ def restore_expense(db: Session, me: User, expense_id: uuid.UUID) -> ExpenseOut:
     e = _load_visible(db, me, expense_id)
     if e.deleted_at is None:
         raise ApiError(409, "NOT_DELETED", "The expense is not deleted")
+    if e.group_id is not None:
+        lock_group(db, e.group_id)
+        db.refresh(e)
+        if e.deleted_at is None:
+            raise ApiError(409, "NOT_DELETED", "The expense is not deleted")
+    _departed_guard(db, e)
     now = _now()
     res = db.execute(update(Expense).where(Expense.id == e.id, Expense.deleted_at.is_not(None))
                      .values(deleted_at=None, deleted_by=None, version=Expense.version + 1, updated_at=now))

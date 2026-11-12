@@ -9,7 +9,7 @@ from sqlalchemy import case, exists, func, literal, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
-from app import activity, idempotency, outbox
+from app import activity, idempotency, outbox, services_balances
 from app.errors import ApiError
 from app.models import Currency, Friendship, Group, GroupMember, User
 from app.schemas import (BalanceLine, GroupCreate, GroupList, GroupMemberOut, GroupOut, GroupSummary, GroupUpdate,
@@ -51,9 +51,16 @@ def _live_group_for_member(db: Session, me: User, group_id: uuid.UUID) -> Group:
     return group
 
 
+def lock_group(db: Session, group_id: uuid.UUID) -> None:
+    """Serialise membership changes and balance-changing expense writes per group (SELECT ... FOR UPDATE on the group
+    row; held until the transaction ends). Without it, on READ COMMITTED an expense naming a member could commit
+    between the OUTSTANDING_BALANCE read and the leave. SQLite ignores FOR UPDATE (it has one writer anyway)."""
+    db.execute(select(Group.id).where(Group.id == group_id).with_for_update())
+
+
 def member_balances(db: Session, group_id: uuid.UUID, user_id: uuid.UUID) -> list[BalanceLine]:
-    """Balance guard stub: reads 0 (no lines) until Slice 4 computes group balances."""
-    return []
+    """The member's non-zero nets in the group, per currency (the leave/remove guard, business_rules 8)."""
+    return services_balances.user_group_balances(db, user_id, group_id)
 
 
 # ---------- keep friends when a shared group ends (S2-B-8) ----------
@@ -94,23 +101,26 @@ def _keep_friends(db: Session, group_id: uuid.UUID, leaver: uuid.UUID | None) ->
     db.execute(stmt)
 
 
-def group_out(db: Session, group: Group) -> GroupOut:
+def group_out(db: Session, group: Group, me: User) -> GroupOut:
     rows = db.execute(
         select(GroupMember, User).join(User, User.id == GroupMember.user_id)
         .where(GroupMember.group_id == group.id).order_by(GroupMember.sort_index)
     ).all()
+    data = services_balances.load_groups(db, [group.id])[group.id]
+    nets = data.nets
     members = [GroupMemberOut(user=UserPublic.model_validate(u), joined_at=m.joined_at, left_at=m.left_at,
-                              balances=[]) for m, u in rows]
+                              balances=services_balances.lines({c: n.get(u.id, 0) for c, n in nets.items()}))
+               for m, u in rows]
     return GroupOut(
         id=group.id, name=group.name, group_type=group.group_type, simplify_debts=group.simplify_debts,
         default_currency=group.default_currency, avatar_url=group.avatar_url,
         trip_start_date=group.trip_start_date, trip_end_date=group.trip_end_date, whiteboard=group.whiteboard,
-        members=members, my_balances=[], version=group.version, created_by=group.created_by,
+        members=members, my_balances=services_balances.member_lines(data, me.id), version=group.version, created_by=group.created_by,
         created_at=group.created_at, deleted_at=group.deleted_at)
 
 
 def get_group(db: Session, me: User, group_id: uuid.UUID) -> GroupOut:
-    return group_out(db, _load_for_member(db, me, group_id))
+    return group_out(db, _load_for_member(db, me, group_id), me)
 
 
 def list_groups(db: Session, me: User) -> GroupList:
@@ -123,10 +133,13 @@ def list_groups(db: Session, me: User) -> GroupList:
         .join(counts, counts.c.group_id == Group.id)
         .where(Group.deleted_at.is_(None)).order_by(Group.updated_at.desc(), Group.id)
     ).all()
-    return GroupList(items=[GroupSummary(id=g.id, name=g.name, group_type=g.group_type, avatar_url=g.avatar_url,
-                                         member_count=n, my_balances=[], settled_up_since=None,
-                                         updated_at=g.updated_at) for g, n in rows],
-                     non_group_balances=[])
+    data = services_balances.load_groups(db, [g.id for g, _ in rows])
+    items = [GroupSummary(id=g.id, name=g.name, group_type=g.group_type, avatar_url=g.avatar_url, member_count=n,
+                          my_balances=services_balances.member_lines(data[g.id], me.id),
+                          settled_up_since=data[g.id].settled_up_since(), updated_at=g.updated_at)
+             for g, n in rows]
+    pairs = services_balances.compute_pairs(db, me.id, with_groups=False)
+    return GroupList(items=items, non_group_balances=services_balances.non_group_total(pairs))
 
 
 # ---------- members ----------
@@ -231,7 +244,7 @@ def _create(db: Session, me: User, req: GroupCreate) -> tuple[int, dict[str, Any
     activity.record(db, me.id, "group.created", "group", group.id, group.id,
                     {"name": group.name, "group_type": group.group_type, "member_count": 1 + len(others)},
                     [me.id, *(u.id for u in others)])
-    body = group_out(db, group).model_dump(mode="json")
+    body = group_out(db, group, me).model_dump(mode="json")
     return 201, body
 
 
@@ -279,7 +292,7 @@ def update_group(db: Session, me: User, group_id: uuid.UUID, req: GroupUpdate) -
             values[field] = new
     _check_dates(values.get("trip_start_date", group.trip_start_date), values.get("trip_end_date", group.trip_end_date))
     if not values:
-        return group_out(db, group)
+        return group_out(db, group, me)
     changes = {f: {"from": _jsonable(getattr(group, f)), "to": _jsonable(v)} for f, v in values.items()}
     if "whiteboard" in values:
         values["whiteboard_updated_by"] = me.id
@@ -295,7 +308,7 @@ def update_group(db: Session, me: User, group_id: uuid.UUID, req: GroupUpdate) -
     activity.record(db, me.id, "group.updated", "group", group.id, group.id,
                     {"name": group.name, "changes": changes}, _active_member_ids(db, group.id))
     db.commit()
-    return group_out(db, group)
+    return group_out(db, group, me)
 
 
 def delete_group(db: Session, me: User, group_id: uuid.UUID) -> None:
@@ -330,7 +343,7 @@ def add_members(db: Session, me: User, group_id: uuid.UUID, req: MembersAdd) -> 
     except IntegrityError:
         db.rollback()
         raise ApiError(409, "VERSION_CONFLICT", "Members changed concurrently, retry")
-    return group_out(db, group)
+    return group_out(db, group, me)
 
 
 def remove_member(db: Session, me: User, group_id: uuid.UUID, user_id_param: str) -> None:
@@ -341,6 +354,7 @@ def remove_member(db: Session, me: User, group_id: uuid.UUID, user_id_param: str
             target_id = uuid.UUID(user_id_param)
         except ValueError:
             raise _invalid("user_id", "must be a user id or 'me'")
+    lock_group(db, group_id)
     group = _live_group_for_member(db, me, group_id)
     target = db.get(GroupMember, (group.id, target_id))
     if target is None or target.left_at is not None:

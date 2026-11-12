@@ -57,6 +57,7 @@ import { PayersPanel } from '../expenses/PayersPanel';
 import { CategoryPanel, DatePanel, NotePanel } from '../expenses/PickerPanels';
 import { SplitPanel } from '../expenses/SplitPanel';
 import { useNameOf } from '../expenses/useNames';
+import { DEPARTED_MEMBER_MESSAGE } from '../expenses/messages';
 import { formatMinorAmount } from '../money/format';
 import { useMoney } from '../money/useMoney';
 import type { MainStackParamList } from '../navigation/types';
@@ -364,9 +365,7 @@ function ExpenseForm({
       res.status === 409 &&
       err?.code === 'EXPENSE_HAS_DEPARTED_MEMBER'
     ) {
-      setBanner(
-        'This expense includes someone who has left the group, so it cannot be edited.',
-      );
+      setBanner(DEPARTED_MEMBER_MESSAGE);
     } else if (res.status === 403) {
       setBanner("You can't change this expense.");
     } else if (res.status === 404) {

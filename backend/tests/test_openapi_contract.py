@@ -48,6 +48,8 @@ IN_SCOPE = {
     ("get", "/expenses"), ("post", "/expenses"), ("get", "/expenses/{id}"), ("patch", "/expenses/{id}"),
     ("delete", "/expenses/{id}"), ("post", "/expenses/{id}/restore"),
     ("get", "/expenses/{id}/comments"), ("post", "/expenses/{id}/comments"),
+    # Slice 4
+    ("get", "/groups/{id}/balances"), ("get", "/balances"),
 }
 # In the spec under the Slice 2 heading but not in any S2-B task (no route yet).
 NOT_YET_IMPLEMENTED = {
@@ -391,6 +393,52 @@ def test_timeline_endpoint(call):
     call("GET", f"/groups/{gid}/timeline", 403, token=tc)
     call("GET", "/groups/0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1affff/timeline", 404, token=ta)
     call("GET", f"/groups/{gid}/timeline", 422, token=ta, params={"cursor": "garbage"})
+
+
+def test_balances_endpoints(call):
+    """Contract-validated calls: 200 / 401 / 403 / 404 (the 404 for an unknown group is declared since 2026-11-11)."""
+    a, b, c, gid = _people(call)  # c is not a member
+    ta, tb, tc = _bearer(a), _bearer(b), _bearer(c)
+    path = f"/groups/{gid}/balances"
+    empty = call("GET", path, 200, token=ta).json()
+    assert empty["transfers"] == [] and empty["simplified"] is True
+    assert call("GET", "/balances", 200, token=tc).json() == {"you_are_owed": [], "you_owe": [], "by_friend": []}
+    call("POST", f"/groups/{gid}/expenses", 201, token=ta, json_body=_eq(a, [a, b], 3000))
+    on = call("GET", path, 200, token=tb).json()  # simplify on (default)
+    assert on["simplified"] is True and len(on["transfers"]) == 1
+    call("PATCH", f"/groups/{gid}", 200, token=ta, json_body={"version": 1, "simplify_debts": False})
+    off = call("GET", path, 200, token=ta).json()  # pairwise
+    assert off["simplified"] is False and len(off["transfers"]) == 1
+    mine = call("GET", "/balances", 200, token=tb).json()
+    assert mine["you_owe"] and mine["by_friend"]
+    call("GET", path, 401)
+    call("GET", "/balances", 401)
+    call("GET", path, 403, token=tc)
+    nf = call("GET", "/groups/0b6f4f0e-1c2d-4a1b-9a5e-0d7d2f1affff/balances", 404, token=ta)  # vector 67
+    assert nf.json()["code"] == "NOT_FOUND"
+
+
+def test_departed_member_409s_on_delete_and_restore(call):
+    """S4-Q-4, vectors 62/63/65: the declared 409 EXPENSE_HAS_DEPARTED_MEMBER on DELETE and restore, validated against the spec."""
+    a, b, c, gid = _people(call)
+    ta, tb = _bearer(a), _bearer(b)
+    live = call("POST", f"/groups/{gid}/expenses", 201, token=ta, json_body=_eq(a, [a, b], 6000)).json()
+    gone = call("POST", f"/groups/{gid}/expenses", 201, token=ta, json_body=_eq(a, [a, b], 600)).json()
+    call("DELETE", f"/expenses/{gone['id']}", 200, token=ta)
+    call("POST", f"/groups/{gid}/expenses", 201, token=tb, json_body={  # B pays 3000 for A: B is back at 0
+        **_eq(b, [a], 3000), "description": "settle"})
+    call("DELETE", f"/groups/{gid}/members/me", 204, token=tb)
+    r = call("DELETE", f"/expenses/{live['id']}", 409, token=ta)
+    assert r.json()["code"] == "EXPENSE_HAS_DEPARTED_MEMBER"
+    r = call("POST", f"/expenses/{gone['id']}/restore", 409, token=ta)
+    assert r.json()["code"] == "EXPENSE_HAS_DEPARTED_MEMBER"
+    # non-group restore after friend removal (vector 65)
+    d = reg_user(call.client, "dev@example.com", "Dev")
+    call("POST", "/friends", 201, token=ta, json_body={"email": "dev@example.com"})
+    ng = call("POST", "/expenses", 201, token=ta, json_body={**_eq(a, [a, d]), "group_id": None}).json()
+    call("DELETE", f"/friends/{d['user']['id']}", 204, token=ta)
+    r = call("POST", f"/expenses/{ng['id']}/restore", 409, token=ta)
+    assert r.json()["code"] == "EXPENSE_HAS_DEPARTED_MEMBER"
 
 
 # Must stay last: it needs the COVERED set filled by every contract test above it.

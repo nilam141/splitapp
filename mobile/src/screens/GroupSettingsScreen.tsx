@@ -228,6 +228,11 @@ export function GroupSettingsScreen({ navigation, route }: Props) {
       />
       <View style={styles.switchRow}>
         <Text>Simplify debts</Text>
+        <Button
+          title="Info"
+          accessibilityLabel="About simplify debts"
+          onPress={() => navigation.navigate('SimplifyExplainer', { groupId })}
+        />
         <Switch
           accessibilityLabel="Simplify debts"
           value={group.simplify_debts}
