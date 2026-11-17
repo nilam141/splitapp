@@ -1,7 +1,6 @@
 {
   "src/components/ConfirmDialog.tsx": 9,
   "src/components/CurrencyPicker.tsx": 8,
-  "src/components/FormField.tsx": 8,
   "src/components/Segmented.tsx": 7,
   "src/components/StateViews.tsx": 5,
   "src/expenses/ExpenseRow.tsx": 9,

@@ -27,6 +27,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import {
   colorSchemes,
+  control,
   layout,
   maxFontScale,
   radius,
@@ -389,6 +390,30 @@ describe('SUI-M-02 FormField', () => {
     }
   });
 
+  it('SUI-M-02 (a): input caps font scaling at maxFontScale.fixedControl by default, both themes', async () => {
+    const { FormField } = load('components/FormField');
+    const r = await both(
+      <FormField label="Email" value="" onChangeText={noop} />,
+    );
+    for (const s of SCHEMES) {
+      expect(field(r[s]).props.maxFontSizeMultiplier).toBe(
+        maxFontScale.fixedControl,
+      );
+    }
+  });
+
+  it('SUI-M-02 (b): multiline uses minHeight (control.fieldHeight), not a fixed height', async () => {
+    const { FormField } = load('components/FormField');
+    const r = await both(
+      <FormField label="Email" value="" multiline onChangeText={noop} />,
+    );
+    for (const s of SCHEMES) {
+      const st = styleOf(field(r[s]));
+      expect(st.minHeight).toBe(control.fieldHeight);
+      expect(st.height).toBeUndefined();
+    }
+  });
+
   it('password: "Show password" 48dp toggle flips secureTextEntry', async () => {
     const { FormField } = load('components/FormField');
     await eachTheme(
@@ -453,6 +478,31 @@ describe('SUI-M-02 MoneyField', () => {
     await fireEvent.changeText(input(r.dark), '12.345');
     expect(input(r.dark).props.value).toBe('12.34');
     expect(onChangeMinor).toHaveBeenLastCalledWith(1234);
+  });
+
+  it('SUI-M-02 (c): initialMinor 1234 INR shows "12.34"; omitted shows an empty field', async () => {
+    const { MoneyField } = load('components/MoneyField');
+    const withInit = await both(
+      <MoneyField
+        label="Amount"
+        currency="INR"
+        exponent={2}
+        initialMinor={1234}
+        onChangeMinor={noop}
+      />,
+    );
+    const without = await both(
+      <MoneyField
+        label="Amount"
+        currency="INR"
+        exponent={2}
+        onChangeMinor={noop}
+      />,
+    );
+    for (const s of SCHEMES) {
+      expect(input(withInit[s]).props.value).toBe('12.34');
+      expect(input(without[s]).props.value).toBe('');
+    }
   });
 
   it('rejects any decimal for JPY', async () => {

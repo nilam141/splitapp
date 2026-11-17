@@ -26,7 +26,8 @@ export const touchTarget = {
 export const control = {
   height: 52,
   textHeight: 40, // compact 'text' variant visual height; hitSlop brings the target to touchTarget.min
-  focusRingWidth: 2,
+  fieldHeight: 56, // text input height (design_system 6.2)
+  focusRingWidth: 2, // also the focused / error input outline width
   focusRingOffset: 2, // gap between the control edge and the ring (design_system 6.1)
   spinner: 20,
 } as const;
