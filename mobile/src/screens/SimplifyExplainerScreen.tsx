@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
-import { Button, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Text } from '../components/Text';
+import { Button } from '../components/Button';
 import { useQueryClient } from '@tanstack/react-query';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useGetGroup, useUpdateGroup } from '../api/generated/splitapp';
@@ -11,6 +14,7 @@ type Props = NativeStackScreenProps<MainStackParamList, 'SimplifyExplainer'>;
 
 // SCR-40: a worked example with our own 3-person diagram, and a "Turn on" button when it is off.
 export function SimplifyExplainerScreen({ navigation, route }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const { groupId } = route.params;
   const qc = useQueryClient();
   const query = useGetGroup(groupId);
@@ -82,18 +86,19 @@ export function SimplifyExplainerScreen({ navigation, route }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { padding: 16 },
-  title: { fontSize: 22, fontWeight: '700', marginBottom: 8 },
-  body: { fontSize: 15, marginBottom: 16 },
-  example: {
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  label: { fontWeight: '600', marginTop: 8 },
-  small: { color: '#666', marginTop: 4 },
-  error: { color: '#b00020', marginBottom: 8 },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: { padding: 16 },
+    title: { fontSize: 22, fontWeight: '700', marginBottom: 8 },
+    body: { fontSize: 15, marginBottom: 16 },
+    example: {
+      padding: 12,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      borderRadius: 8,
+      marginBottom: 16,
+    },
+    label: { fontWeight: '600', marginTop: 8 },
+    small: { color: colors.textSecondary, marginTop: 4 },
+    error: { color: colors.errorText, marginBottom: 8 },
+  });

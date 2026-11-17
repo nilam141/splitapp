@@ -72,6 +72,33 @@ Implement Slice N from docs/tasks.md in this order:
 Loop on findings. Do not merge or commit; report results and what I should check by hand.
 ```
 
+**UI Slices:**
+
+```
+SUI-Q-1 (QA, goes first):
+A new noLayoutLiterals test for spacing, radius and font literals. noColorLiterals only catches colors today.
+A baseline of current violations that may only shrink.
+Test helpers for rendering in both themes.
+A dark-mode smoke test over every screen.
+SUI-M-01 to 06 (shared components):
+01: Text, Button, Switch.
+02: FormField, plus a new MoneyField.
+03: Card, ListRow, SectionHeader, Avatar.
+04: BalanceChip, with BalanceLines rebuilt on it.
+05: Skeleton, EmptyView, ErrorBanner, OfflineBanner and the loading timing.
+06: Segmented, FilterChip, ConfirmDialog, CurrencyPicker, toast, Fab, icons.
+SUI-M-101 to 144 (one per screen): SUI-M-1nn matches SCR-nn, so SCR-08 is SUI-M-108.
+SUI-R-1 (Reviewer): read-only review, including a manual emulator pass in light and dark.
+Definition of done: every SUI-M task shares a "UI-DoD" of six checks.
+
+Both token guard tests are green, and the task's files are off the baseline.
+The screen renders in light and dark, with every resolved color belonging to the active scheme.
+Loading, empty, error and offline states are handled.
+Touch targets are 48dp, pressables have labels, and the screen renders at font scale 2.0.
+tsc, eslint and the full jest suite are green.
+openapi.yaml and the generated client are untouched.
+```
+
 ## Step 4: After every slice (you)
 
 1. Read the reviewer verdict and `docs/progress.md`.

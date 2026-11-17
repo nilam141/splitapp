@@ -1,12 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  Button,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  View,
-} from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Switch } from '../components/Switch';
+import { Text } from '../components/Text';
+import { Button } from '../components/Button';
 import { useQueryClient } from '@tanstack/react-query';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { NavigationAction } from '@react-navigation/native';
@@ -45,6 +42,7 @@ const label = (p: PersonDraft) =>
 
 // SCR-12.
 export function CreateGroupScreen({ navigation, route }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const qc = useQueryClient();
   // One key per form: a retry after a timeout cannot create a second group.
   const idemKey = useRef(newIdempotencyKey());
@@ -221,6 +219,7 @@ export function CreateGroupScreen({ navigation, route }: Props) {
         title="Discard this group?"
         message="Your changes will be lost."
         confirmLabel="Discard"
+        destructive
         onClose={() => setPendingLeave(null)}
         onConfirm={() => {
           const action = pendingLeave;
@@ -235,22 +234,23 @@ export function CreateGroupScreen({ navigation, route }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { padding: 16 },
-  switchRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  section: { fontSize: 16, fontWeight: '600', marginBottom: 8 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
-  chip: {
-    backgroundColor: '#e6f2ee',
-    borderRadius: 16,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-  },
-  error: { color: '#b00020', fontSize: 13, marginVertical: 4 },
-  submit: { marginTop: 20 },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: { padding: 16 },
+    switchRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 14,
+    },
+    section: { fontSize: 16, fontWeight: '600', marginBottom: 8 },
+    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+    chip: {
+      backgroundColor: colors.brandSubtle,
+      borderRadius: 16,
+      paddingVertical: 4,
+      paddingHorizontal: 12,
+    },
+    error: { color: colors.errorText, fontSize: 13, marginVertical: 4 },
+    submit: { marginTop: 20 },
+  });

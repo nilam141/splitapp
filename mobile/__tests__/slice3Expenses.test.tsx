@@ -78,7 +78,7 @@ describe('S3-M-3 Add expense (SCR-22) and the group timeline (SCR-13)', () => {
     await fillBasics('Dinner', '100');
     await press('Save');
 
-    expect(await screen.findByText('you lent 66.66')).toBeTruthy();
+    expect(await screen.findByText('you lent +66.66')).toBeTruthy();
     expect(screen.getByText('Dinner')).toBeTruthy();
     const req = posts(`/groups/${g.id}/expenses`);
     expect(req).toHaveLength(1);
@@ -946,6 +946,8 @@ describe('S3-M-6 Friend settings (SCR-20) remove flow', () => {
     expect(
       await screen.findByText('No expenses with this friend'),
     ).toBeTruthy();
-    expect(screen.getAllByText('owes you INR 30.00').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('owes you +INR 30.00').length).toBeGreaterThan(
+      0,
+    );
   });
 });

@@ -131,9 +131,9 @@ describe('S4-M-1 screens', () => {
     await press('Friends');
     await press('Ravi');
     expect(await screen.findByText('Goa')).toBeTruthy();
-    expect(screen.getAllByText('owes you INR 120.50').length).toBe(2);
-    expect(screen.getAllByText('you owe USD 5.00').length).toBe(2);
-    expect(screen.getAllByText('owes you JPY 1,200').length).toBe(2);
+    expect(screen.getAllByText('owes you +INR 120.50').length).toBe(2);
+    expect(screen.getAllByText('you owe −USD 5.00').length).toBe(2);
+    expect(screen.getAllByText('owes you +JPY 1,200').length).toBe(2);
   });
 
   it('groups tab: per-currency lines, singular settled-up label, non-group row', async () => {
@@ -168,8 +168,8 @@ describe('S4-M-1 screens', () => {
         : undefined,
     );
     await render(<App queryClient={qc} />);
-    expect(await screen.findByText('owes you INR 120.50')).toBeTruthy();
-    expect(screen.getByText('you owe USD 3.00')).toBeTruthy();
+    expect(await screen.findByText('owes you +INR 120.50')).toBeTruthy();
+    expect(screen.getByText('you owe −USD 3.00')).toBeTruthy();
     expect(screen.getByText('Non-group expenses')).toBeTruthy();
     expect(screen.queryByText('Old trip')).toBeNull();
     expect(screen.getByText('Show 1 settled-up group')).toBeTruthy();
@@ -243,8 +243,8 @@ describe('S4-M-2 Group balances and simplify explainer', () => {
       'Bea owes Dan INR 10.00',
       'You owe Dan INR 5.00',
     ]);
-    expect(screen.getByText('owe INR 30.00 in total')).toBeTruthy();
-    expect(screen.getByText('gets back INR 25.00 in total')).toBeTruthy();
+    expect(screen.getByText('owe −INR 30.00 in total')).toBeTruthy();
+    expect(screen.getByText('gets back +INR 25.00 in total')).toBeTruthy();
   });
 
   it("tapping a member expands that member's payments", async () => {

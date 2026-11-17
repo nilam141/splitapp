@@ -1,12 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import {
-  Button,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Text } from '../components/Text';
+import { Button } from '../components/Button';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useGetGroupBalances } from '../api/generated/splitapp';
 import { useAuth } from '../auth/AuthContext';
@@ -20,6 +16,7 @@ type Props = NativeStackScreenProps<MainStackParamList, 'GroupBalances'>;
 
 // SCR-15: every member's net per currency and the suggested payments, in the order the server returns them.
 export function GroupBalancesScreen({ navigation, route }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const { groupId } = route.params;
   const { user } = useAuth();
   const { format } = useMoney();
@@ -126,18 +123,33 @@ export function GroupBalancesScreen({ navigation, route }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { padding: 16 },
-  noteRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  settled: { marginVertical: 12, fontSize: 16, color: '#1b7f3b' },
-  section: { fontSize: 16, fontWeight: '600', marginTop: 20, marginBottom: 6 },
-  member: { borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 8 },
-  memberHead: { flexDirection: 'row', justifyContent: 'space-between' },
-  name: { fontSize: 16, fontWeight: '500' },
-  detail: { marginTop: 4, marginLeft: 12, color: '#444' },
-  transfer: { paddingVertical: 6, fontSize: 15 },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: { padding: 16 },
+    noteRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    settled: { marginVertical: 12, fontSize: 16, color: colors.textSecondary },
+    section: {
+      fontSize: 16,
+      fontWeight: '600',
+      marginTop: 20,
+      marginBottom: 6,
+    },
+    member: {
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+      paddingVertical: 8,
+    },
+    memberHead: {
+      minHeight: 48,
+      alignItems: 'center',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+    },
+    name: { fontSize: 16, fontWeight: '500' },
+    detail: { marginTop: 4, marginLeft: 12, color: colors.textPrimary },
+    transfer: { paddingVertical: 6, fontSize: 15 },
+  });

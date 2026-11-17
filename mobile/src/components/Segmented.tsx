@@ -1,5 +1,7 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { useThemedStyles } from '../theme';
+import { Text } from './Text';
 
 type Props<T extends string> = {
   label: string;
@@ -14,6 +16,24 @@ export function Segmented<T extends string>({
   value,
   onChange,
 }: Props<T>) {
+  const styles = useThemedStyles(({ colors, touchTarget }) =>
+    StyleSheet.create({
+      wrap: { marginBottom: 14 },
+      label: { marginBottom: 4, fontSize: 14, color: colors.textSecondary },
+      row: { flexDirection: 'row', gap: 8 },
+      seg: {
+        borderWidth: 1,
+        borderColor: colors.borderStrong,
+        borderRadius: 16,
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        minHeight: touchTarget.min,
+        justifyContent: 'center',
+      },
+      segOn: { backgroundColor: colors.brand, borderColor: colors.brand },
+      textOn: { color: colors.textOnBrand },
+    }),
+  );
   return (
     <View style={styles.wrap}>
       <Text style={styles.label}>{label}</Text>
@@ -34,18 +54,3 @@ export function Segmented<T extends string>({
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  wrap: { marginBottom: 14 },
-  label: { marginBottom: 4, fontSize: 14, color: '#333' },
-  row: { flexDirection: 'row', gap: 8 },
-  seg: {
-    borderWidth: 1,
-    borderColor: '#bbb',
-    borderRadius: 16,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-  },
-  segOn: { backgroundColor: '#1b6e5a', borderColor: '#1b6e5a' },
-  textOn: { color: '#fff' },
-});

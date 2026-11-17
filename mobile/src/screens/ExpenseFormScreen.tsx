@@ -7,14 +7,14 @@ import React, {
 } from 'react';
 import {
   BackHandler,
-  Button,
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Text, TextInput } from '../components/Text';
+import { Button } from '../components/Button';
 import { useQueryClient } from '@tanstack/react-query';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
@@ -197,6 +197,7 @@ function ExpenseForm({
   nameOf,
   exponentOf,
 }: FormProps) {
+  const styles = useThemedStyles(makeStyles);
   const qc = useQueryClient();
   const today = useMemo(() => isoDate(new Date()), []);
   const idemKey = useRef(newIdempotencyKey());
@@ -483,6 +484,7 @@ function ExpenseForm({
 
       <View style={styles.amountRow}>
         <Pressable
+          hitSlop={{ top: 12, bottom: 12, left: 4, right: 4 }}
           accessibilityRole="button"
           accessibilityLabel={`Currency: ${draft.currency}`}
           disabled={!!expense}
@@ -522,6 +524,7 @@ function ExpenseForm({
       <View style={styles.sentence}>
         <Text>Paid by </Text>
         <Pressable
+          hitSlop={{ top: 12, bottom: 12, left: 4, right: 4 }}
           accessibilityRole="button"
           accessibilityLabel="Change payers"
           onPress={() => setPanel('payers')}
@@ -530,6 +533,7 @@ function ExpenseForm({
         </Pressable>
         <Text> and split </Text>
         <Pressable
+          hitSlop={{ top: 12, bottom: 12, left: 4, right: 4 }}
           accessibilityRole="button"
           accessibilityLabel="Change split"
           onPress={() => setPanel('split')}
@@ -606,6 +610,7 @@ function ExpenseForm({
         visible={dialog?.kind === 'discard'}
         title="Discard changes?"
         confirmLabel="Discard"
+        destructive
         onConfirm={() => {
           const action = dialog?.kind === 'discard' ? dialog.action : undefined;
           setDialog(null);
@@ -624,43 +629,46 @@ function ExpenseForm({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { padding: 16 },
-  with: { color: '#444', marginBottom: 12 },
-  banner: {
-    backgroundColor: '#fde8e8',
-    color: '#8a1c1c',
-    padding: 10,
-    borderRadius: 6,
-    marginBottom: 12,
-  },
-  label: { marginBottom: 4, color: '#333' },
-  input: {
-    borderWidth: 1,
-    borderColor: '#bbb',
-    borderRadius: 6,
-    padding: 10,
-    fontSize: 16,
-  },
-  inputError: { borderColor: '#b00020' },
-  error: { color: '#b00020', marginTop: 4 },
-  amountRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 12,
-    alignItems: 'center',
-  },
-  amount: { flex: 1 },
-  chip: {
-    borderWidth: 1,
-    borderColor: '#bbb',
-    borderRadius: 16,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    marginTop: 12,
-    alignSelf: 'flex-start',
-  },
-  sentence: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 16 },
-  link: { color: '#1b6e5a', fontWeight: '600' },
-  save: { marginTop: 24 },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: { padding: 16 },
+    with: { color: colors.textPrimary, marginBottom: 12 },
+    banner: {
+      backgroundColor: colors.errorSubtle,
+      color: colors.errorText,
+      padding: 10,
+      borderRadius: 6,
+      marginBottom: 12,
+    },
+    label: { marginBottom: 4, color: colors.textPrimary },
+    input: {
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      borderRadius: 6,
+      padding: 10,
+      fontSize: 16,
+    },
+    inputError: { borderColor: colors.error },
+    error: { color: colors.errorText, marginTop: 4 },
+    amountRow: {
+      flexDirection: 'row',
+      gap: 8,
+      marginTop: 12,
+      alignItems: 'center',
+    },
+    amount: { flex: 1 },
+    chip: {
+      minHeight: 48,
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      borderRadius: 16,
+      paddingVertical: 8,
+      paddingHorizontal: 14,
+      marginTop: 12,
+      alignSelf: 'flex-start',
+    },
+    sentence: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 16 },
+    link: { color: colors.brand, fontWeight: '600' },
+    save: { marginTop: 24 },
+  });

@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Button, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Text } from '../components/Text';
+import { Button } from '../components/Button';
 import { useUpdateCurrentUser } from '../api/generated/splitapp';
 import type { UserUpdate } from '../api/generated/model';
 import { apiErrorOf } from '../api/helpers';
@@ -15,6 +18,7 @@ const OFFLINE = "Can't reach the server. Try again.";
 
 // SCR-11. Each field saves on its own with PATCH /users/me.
 export function AccountScreen() {
+  const styles = useThemedStyles(makeStyles);
   const { user, signOut, setUser } = useAuth();
   const update = useUpdateCurrentUser();
   const [name, setName] = useState(user?.name ?? '');
@@ -170,11 +174,12 @@ export function AccountScreen() {
 
       <View style={styles.block}>
         <Text style={styles.label}>Default currency</Text>
-        <Text accessibilityLabel="Default currency value">
+        <Text accessibilityLabel="Default currency value" style={styles.value}>
           {user.default_currency}
         </Text>
         <Button
           title={saving === 'currency' ? 'Saving...' : 'Change currency'}
+          variant="secondary"
           onPress={() => setPickerOpen(true)}
           disabled={saving !== null}
         />
@@ -198,7 +203,11 @@ export function AccountScreen() {
       </View>
 
       <View style={styles.logout}>
-        <Button title="Log out" onPress={() => setConfirmLogout(true)} />
+        <Button
+          title="Log out"
+          variant="outlined"
+          onPress={() => setConfirmLogout(true)}
+        />
       </View>
 
       <CurrencyPicker
@@ -225,12 +234,14 @@ export function AccountScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { padding: 24 },
-  title: { fontSize: 22, fontWeight: '600', marginBottom: 16 },
-  block: { marginTop: 12, marginBottom: 8 },
-  label: { fontSize: 14, color: '#333', marginBottom: 4 },
-  saved: { color: '#1b7f3b', marginBottom: 8 },
-  error: { color: '#b00020', marginTop: 4 },
-  logout: { marginTop: 24 },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: { padding: 24 },
+    title: { fontSize: 22, fontWeight: '600', marginBottom: 16 },
+    block: { marginTop: 12, marginBottom: 8 },
+    label: { fontSize: 14, color: colors.textPrimary, marginBottom: 4 },
+    saved: { color: colors.textSecondary, marginBottom: 8 },
+    error: { color: colors.errorText, marginTop: 4 },
+    logout: { marginTop: 24 },
+    value: { marginBottom: 8 },
+  });

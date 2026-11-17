@@ -142,10 +142,10 @@ describe('S2-M-2 Friends tab and Add people', () => {
     server.addFriendRow('f3', 'Old', [], '2026-01-01T00:00:00Z');
     await render(<App queryClient={qc} />);
     await openTab('Friends');
-    expect(await screen.findByText('owes you INR 120.50')).toBeTruthy();
-    expect(screen.getByText('you owe USD 3.00')).toBeTruthy();
+    expect(await screen.findByText('owes you +INR 120.50')).toBeTruthy();
+    expect(screen.getByText('you owe −USD 3.00')).toBeTruthy();
     expect(
-      screen.getByText(/Overall: you owe USD 3.00, you are owed INR 120.50/),
+      screen.getByText(/Overall: you owe −USD 3.00, you are owed \+INR 120.50/),
     ).toBeTruthy();
     expect(screen.queryByText('Old')).toBeNull();
     await fireEvent.press(screen.getByText('Show 1 settled-up friend'));

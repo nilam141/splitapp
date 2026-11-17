@@ -1,12 +1,8 @@
 import React, { useLayoutEffect, useMemo, useState } from 'react';
-import {
-  Button,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Text, TextInput } from '../components/Text';
+import { Button } from '../components/Button';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
@@ -38,6 +34,7 @@ const COMMENT_PAGE = 50;
 
 // SCR-29: expense, payers, splits, notes, comments, delete / restore and the edit entry point.
 export function ExpenseDetailScreen({ navigation, route }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const { expenseId } = route.params;
   const qc = useQueryClient();
   const { exponentOf } = useMoney();
@@ -86,6 +83,7 @@ export function ExpenseDetailScreen({ navigation, route }: Props) {
         expense && !expense.deleted_at
           ? () => (
               <Button
+                variant="text"
                 title="Edit"
                 onPress={() =>
                   navigation.navigate('ExpenseForm', { expenseId })
@@ -263,7 +261,7 @@ export function ExpenseDetailScreen({ navigation, route }: Props) {
         <View style={styles.actions}>
           <Button
             title="Delete"
-            color="#b00020"
+            destructive
             disabled={busy}
             onPress={() => setConfirmDelete(true)}
           />
@@ -323,6 +321,7 @@ export function ExpenseDetailScreen({ navigation, route }: Props) {
         title="Delete this expense?"
         message="It is removed from balances for everyone. You can restore it afterwards."
         confirmLabel="Delete"
+        destructive
         onClose={() => setConfirmDelete(false)}
         onConfirm={() => {
           setConfirmDelete(false);
@@ -333,43 +332,49 @@ export function ExpenseDetailScreen({ navigation, route }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { padding: 16 },
-  deleted: {
-    backgroundColor: '#fff3cd',
-    padding: 10,
-    borderRadius: 6,
-    marginBottom: 12,
-  },
-  banner: {
-    backgroundColor: '#fde8e8',
-    color: '#8a1c1c',
-    padding: 10,
-    borderRadius: 6,
-    marginBottom: 12,
-  },
-  title: { fontSize: 22, fontWeight: '700' },
-  total: { fontSize: 20, marginVertical: 4 },
-  meta: { color: '#666', marginBottom: 2 },
-  line: { paddingVertical: 3, fontSize: 15 },
-  section: { fontSize: 16, fontWeight: '600', marginTop: 18, marginBottom: 6 },
-  actions: { marginTop: 16, alignItems: 'flex-start' },
-  comment: {
-    backgroundColor: '#f1f3f4',
-    borderRadius: 8,
-    padding: 8,
-    marginBottom: 6,
-  },
-  system: { backgroundColor: 'transparent' },
-  systemText: { fontStyle: 'italic', color: '#666' },
-  author: { fontWeight: '600', marginBottom: 2 },
-  input: {
-    borderWidth: 1,
-    borderColor: '#bbb',
-    borderRadius: 6,
-    padding: 10,
-    marginTop: 12,
-    marginBottom: 8,
-  },
-  error: { color: '#b00020', marginBottom: 6 },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: { padding: 16 },
+    deleted: {
+      backgroundColor: colors.fieldBackground,
+      padding: 10,
+      borderRadius: 6,
+      marginBottom: 12,
+    },
+    banner: {
+      backgroundColor: colors.errorSubtle,
+      color: colors.errorText,
+      padding: 10,
+      borderRadius: 6,
+      marginBottom: 12,
+    },
+    title: { fontSize: 22, fontWeight: '700' },
+    total: { fontSize: 20, marginVertical: 4 },
+    meta: { color: colors.textSecondary, marginBottom: 2 },
+    line: { paddingVertical: 3, fontSize: 15 },
+    section: {
+      fontSize: 16,
+      fontWeight: '600',
+      marginTop: 18,
+      marginBottom: 6,
+    },
+    actions: { marginTop: 16, alignItems: 'flex-start' },
+    comment: {
+      backgroundColor: colors.fieldBackground,
+      borderRadius: 8,
+      padding: 8,
+      marginBottom: 6,
+    },
+    system: { backgroundColor: colors.background },
+    systemText: { fontStyle: 'italic', color: colors.textSecondary },
+    author: { fontWeight: '600', marginBottom: 2 },
+    input: {
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      borderRadius: 6,
+      padding: 10,
+      marginTop: 12,
+      marginBottom: 8,
+    },
+    error: { color: colors.errorText, marginBottom: 6 },
+  });

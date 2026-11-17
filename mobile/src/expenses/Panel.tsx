@@ -1,5 +1,8 @@
 import React from 'react';
-import { Button, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Text } from '../components/Text';
+import { Button } from '../components/Button';
 
 type Props = {
   title: string;
@@ -17,6 +20,7 @@ export function Panel({
   doneDisabled,
   onCancel,
 }: Props) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.flex}>
       <ScrollView
@@ -38,14 +42,16 @@ export function Panel({
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  body: { padding: 16 },
-  title: { fontSize: 20, fontWeight: '600', marginBottom: 12 },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    padding: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    body: { padding: 16 },
+    title: { fontSize: 20, fontWeight: '600', marginBottom: 12 },
+    footer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      padding: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+    },
+  });

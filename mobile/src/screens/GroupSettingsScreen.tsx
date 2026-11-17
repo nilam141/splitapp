@@ -1,12 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import {
-  Button,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  View,
-} from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Switch } from '../components/Switch';
+import { Text } from '../components/Text';
+import { Button } from '../components/Button';
 import { useQueryClient } from '@tanstack/react-query';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
@@ -52,6 +49,7 @@ type Dialog =
 
 // SCR-14.
 export function GroupSettingsScreen({ navigation, route }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const { groupId } = route.params;
   const qc = useQueryClient();
   const { user } = useAuth();
@@ -282,14 +280,14 @@ export function GroupSettingsScreen({ navigation, route }: Props) {
       <View style={styles.danger}>
         <Button
           title="Leave group"
-          color="#b00020"
+          destructive
           disabled={busy}
           onPress={() => setDialog({ kind: 'leave' })}
         />
         <View style={styles.gap} />
         <Button
           title="Delete group"
-          color="#b00020"
+          destructive
           disabled={busy}
           onPress={() => setDialog({ kind: 'delete1' })}
         />
@@ -299,6 +297,7 @@ export function GroupSettingsScreen({ navigation, route }: Props) {
         visible={dialog?.kind === 'remove'}
         title={dialog?.kind === 'remove' ? `Remove ${dialog.name}?` : ''}
         confirmLabel="Remove"
+        destructive
         onClose={() => setDialog(null)}
         onConfirm={() =>
           dialog?.kind === 'remove' && endMembership(dialog.userId, false)
@@ -309,6 +308,7 @@ export function GroupSettingsScreen({ navigation, route }: Props) {
         title="Leave this group?"
         message="You will stay friends with the other members."
         confirmLabel="Leave"
+        destructive
         onClose={() => setDialog(null)}
         onConfirm={() => endMembership('me', true)}
       />
@@ -317,6 +317,7 @@ export function GroupSettingsScreen({ navigation, route }: Props) {
         title="Delete this group?"
         message="It will be deleted for everyone in it."
         confirmLabel="Continue"
+        destructive
         onClose={() => setDialog(null)}
         onConfirm={() => setDialog({ kind: 'delete2' })}
       />
@@ -325,6 +326,7 @@ export function GroupSettingsScreen({ navigation, route }: Props) {
         title={`Really delete "${group.name}"?`}
         message="Members stay on your friends list."
         confirmLabel="Delete group"
+        destructive
         onClose={() => setDialog(null)}
         onConfirm={doDelete}
       />
@@ -338,22 +340,28 @@ export function GroupSettingsScreen({ navigation, route }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { padding: 16 },
-  gap: { height: 12 },
-  switchRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  section: { fontSize: 16, fontWeight: '600', marginTop: 16, marginBottom: 6 },
-  memberRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  error: { color: '#b00020', marginVertical: 8 },
-  danger: { marginTop: 32 },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: { padding: 16 },
+    gap: { height: 12 },
+    switchRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 14,
+    },
+    section: {
+      fontSize: 16,
+      fontWeight: '600',
+      marginTop: 16,
+      marginBottom: 6,
+    },
+    memberRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: 4,
+    },
+    error: { color: colors.errorText, marginVertical: 8 },
+    danger: { marginTop: 32 },
+  });

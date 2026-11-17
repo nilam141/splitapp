@@ -1,12 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import {
-  Button,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Text, TextInput } from '../components/Text';
+import { Button } from '../components/Button';
 import { useListCategories } from '../api/generated/splitapp';
 import type { Category } from '../api/generated/model';
 import { ErrorView, LoadingView } from '../components/StateViews';
@@ -23,6 +19,7 @@ export function CategoryPanel({
   onPick: (id: number) => void;
   onCancel: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const query = useListCategories({
     query: { staleTime: 24 * 60 * 60 * 1000 },
   });
@@ -107,6 +104,7 @@ function CategoryRow({
   selected: number | undefined;
   onPick: (id: number) => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <Pressable
       accessibilityRole="button"
@@ -134,6 +132,7 @@ export function DatePanel({
   onDone: (date: string) => void;
   onCancel: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const [text, setText] = useState(date);
   const error = validateDate(text, today);
   const shift = (days: number) => {
@@ -179,6 +178,7 @@ export function NotePanel({
   onDone: (notes: string) => void;
   onCancel: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const [text, setText] = useState(notes);
   const tooLong = text.length > 2000;
   return (
@@ -202,26 +202,32 @@ export function NotePanel({
   );
 }
 
-const styles = StyleSheet.create({
-  input: {
-    borderWidth: 1,
-    borderColor: '#bbb',
-    borderRadius: 6,
-    padding: 10,
-    fontSize: 16,
-    marginBottom: 8,
-  },
-  inputError: { borderColor: '#b00020' },
-  multiline: { minHeight: 120, textAlignVertical: 'top' },
-  none: { color: '#666', textAlign: 'center', marginTop: 24 },
-  heading: { fontWeight: '700', marginTop: 12, marginBottom: 4 },
-  row: { paddingVertical: 10, paddingLeft: 8 },
-  selected: { fontWeight: '700' },
-  errorText: { color: '#b00020' },
-  count: { color: '#666', textAlign: 'right' },
-  dateButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 12,
-  },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    input: {
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      borderRadius: 6,
+      padding: 10,
+      fontSize: 16,
+      marginBottom: 8,
+    },
+    inputError: { borderColor: colors.error },
+    multiline: { minHeight: 120, textAlignVertical: 'top' },
+    none: { color: colors.textSecondary, textAlign: 'center', marginTop: 24 },
+    heading: { fontWeight: '700', marginTop: 12, marginBottom: 4 },
+    row: {
+      minHeight: 48,
+      justifyContent: 'center',
+      paddingVertical: 10,
+      paddingLeft: 8,
+    },
+    selected: { fontWeight: '700' },
+    errorText: { color: colors.errorText },
+    count: { color: colors.textSecondary, textAlign: 'right' },
+    dateButtons: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginTop: 12,
+    },
+  });

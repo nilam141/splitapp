@@ -1,12 +1,8 @@
 import React, { useState } from 'react';
-import {
-  Button,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Text } from '../components/Text';
+import { Button } from '../components/Button';
 import { useQueryClient } from '@tanstack/react-query';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
@@ -42,6 +38,7 @@ function sharedGroupIds(details: unknown): string[] {
 // SCR-20: shared groups and the Remove friend flow. Removing is never blocked by a balance (OQ-32), so the
 // confirmation warns what will be deleted and shows the current non-group balance.
 export function FriendSettingsScreen({ navigation, route }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const { friendId } = route.params;
   const qc = useQueryClient();
   const { exponentOf } = useMoney();
@@ -172,7 +169,7 @@ export function FriendSettingsScreen({ navigation, route }: Props) {
       <View style={styles.remove}>
         <Button
           title="Remove friend"
-          color="#b00020"
+          destructive
           disabled={busy}
           onPress={() => setDialog({ kind: 'confirm' })}
         />
@@ -183,6 +180,7 @@ export function FriendSettingsScreen({ navigation, route }: Props) {
         title={`Remove ${friend.user.name}?`}
         message={warning}
         confirmLabel="Remove"
+        destructive
         onConfirm={confirmRemove}
         onClose={() => setDialog(null)}
       />
@@ -200,18 +198,30 @@ export function FriendSettingsScreen({ navigation, route }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { padding: 16 },
-  title: { fontSize: 22, fontWeight: '700', marginBottom: 8 },
-  banner: {
-    backgroundColor: '#fde8e8',
-    color: '#8a1c1c',
-    padding: 10,
-    borderRadius: 6,
-    marginBottom: 12,
-  },
-  section: { fontSize: 16, fontWeight: '600', marginTop: 16, marginBottom: 6 },
-  muted: { color: '#666' },
-  row: { paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
-  remove: { marginTop: 32, alignItems: 'flex-start' },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: { padding: 16 },
+    title: { fontSize: 22, fontWeight: '700', marginBottom: 8 },
+    banner: {
+      backgroundColor: colors.errorSubtle,
+      color: colors.errorText,
+      padding: 10,
+      borderRadius: 6,
+      marginBottom: 12,
+    },
+    section: {
+      fontSize: 16,
+      fontWeight: '600',
+      marginTop: 16,
+      marginBottom: 6,
+    },
+    muted: { color: colors.textSecondary },
+    row: {
+      minHeight: 48,
+      justifyContent: 'center',
+      paddingVertical: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    remove: { marginTop: 32, alignItems: 'flex-start' },
+  });

@@ -1,15 +1,14 @@
 import React from 'react';
-import {
-  ActivityIndicator,
-  Button,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { Theme, useTheme, useThemedStyles } from '../theme';
+import { Text } from '../components/Text';
+import { Button } from '../components/Button';
 import { useAuth } from '../auth/AuthContext';
 
 // SCR-01 while the session is being restored; error with Retry if the server is unreachable.
 export function LaunchScreen() {
+  const styles = useThemedStyles(makeStyles);
+  const { colors } = useTheme();
   const { status, retryRestore } = useAuth();
   return (
     <View style={styles.container}>
@@ -22,19 +21,20 @@ export function LaunchScreen() {
           <Button title="Retry" onPress={retryRestore} />
         </>
       ) : (
-        <ActivityIndicator accessibilityLabel="Loading" />
+        <ActivityIndicator accessibilityLabel="Loading" color={colors.brand} />
       )}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  title: { fontSize: 32, fontWeight: '700', marginBottom: 16 },
-  msg: { marginBottom: 12 },
-});
+const makeStyles = (_theme: Theme) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24,
+    },
+    title: { fontSize: 32, fontWeight: '700', marginBottom: 16 },
+    msg: { marginBottom: 12 },
+  });

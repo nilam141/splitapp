@@ -1,12 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import {
-  Pressable,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Switch } from '../components/Switch';
+import { Text, TextInput } from '../components/Text';
 import { formatMinorAmount } from '../money/format';
 import type { SplitType } from '../splits/engine';
 import { Panel } from './Panel';
@@ -56,6 +52,7 @@ export function SplitPanel({
   onDone,
   onCancel,
 }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const [split, setSplit] = useState<SplitDraft>(initial);
   const [shortcutNote, setShortcutNote] = useState<string | undefined>();
   const fmt = (minor: number) => formatMinorAmount(minor, exponent);
@@ -210,43 +207,48 @@ export function SplitPanel({
   );
 }
 
-const styles = StyleSheet.create({
-  shortcuts: { marginBottom: 12, gap: 6 },
-  shortcut: {
-    borderWidth: 1,
-    borderColor: '#bbb',
-    borderRadius: 6,
-    padding: 10,
-  },
-  tabs: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 },
-  tab: {
-    borderWidth: 1,
-    borderColor: '#bbb',
-    borderRadius: 16,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-  },
-  tabOn: { backgroundColor: '#1b6e5a', borderColor: '#1b6e5a' },
-  tabTextOn: { color: '#fff' },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 6,
-  },
-  name: { flex: 1, fontSize: 16 },
-  input: {
-    width: 90,
-    borderWidth: 1,
-    borderColor: '#bbb',
-    borderRadius: 6,
-    padding: 6,
-    textAlign: 'right',
-  },
-  inputError: { borderColor: '#b00020' },
-  unit: { color: '#666' },
-  owed: { width: 90, textAlign: 'right', fontVariant: ['tabular-nums'] },
-  footerBox: { marginTop: 12 },
-  ok: { color: '#1b7f3b' },
-  error: { color: '#b00020' },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    shortcuts: { marginBottom: 12, gap: 6 },
+    shortcut: {
+      minHeight: 48,
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      borderRadius: 6,
+      padding: 10,
+    },
+    tabs: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 },
+    tab: {
+      minHeight: 48,
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      borderRadius: 16,
+      paddingVertical: 4,
+      paddingHorizontal: 12,
+    },
+    tabOn: { backgroundColor: colors.brand, borderColor: colors.brand },
+    tabTextOn: { color: colors.textOnBrand },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 6,
+    },
+    name: { flex: 1, fontSize: 16 },
+    input: {
+      width: 90,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      borderRadius: 6,
+      padding: 6,
+      textAlign: 'right',
+    },
+    inputError: { borderColor: colors.error },
+    unit: { color: colors.textSecondary },
+    owed: { width: 90, textAlign: 'right', fontVariant: ['tabular-nums'] },
+    footerBox: { marginTop: 12 },
+    ok: { color: colors.owedText },
+    error: { color: colors.errorText },
+  });

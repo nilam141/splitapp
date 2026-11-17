@@ -1,12 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import {
-  Button,
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Text } from '../components/Text';
+import { Button } from '../components/Button';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useListGroups } from '../api/generated/splitapp';
@@ -15,11 +11,12 @@ import type { MainStackParamList } from '../navigation/types';
 import { BalanceLines } from '../components/BalanceLines';
 import { EmptyView, ErrorView, LoadingView } from '../components/StateViews';
 import { isLongSettledLines } from '../friends/filter';
-import { summarizeBalances } from '../money/format';
+import { summarizeBalancesSigned } from '../money/signed';
 import { useMoney } from '../money/useMoney';
 
 // SCR-09.
 export function GroupsScreen() {
+  const styles = useThemedStyles(makeStyles);
   const nav = useNavigation<NativeStackNavigationProp<MainStackParamList>>();
   const query = useListGroups();
   const { exponentOf } = useMoney();
@@ -55,7 +52,7 @@ export function GroupsScreen() {
     );
   }
 
-  const summary = summarizeBalances(
+  const summary = summarizeBalancesSigned(
     [...groups.flatMap(g => g.my_balances), ...(body.non_group_balances ?? [])],
     exponentOf,
   );
@@ -63,12 +60,23 @@ export function GroupsScreen() {
   return (
     <View style={styles.container}>
       <FlatList
+        contentContainerStyle={styles.listContent}
         data={visible}
         keyExtractor={g => g.id}
         refreshing={query.isRefetching}
         onRefresh={() => query.refetch()}
         ListHeaderComponent={
-          <Text style={styles.summary}>Overall: {summary}</Text>
+          <View>
+            <View style={styles.add}>
+              <Button title="Start a new group" onPress={create} />
+            </View>
+            <Text
+              accessibilityLabel={`Overall: ${summary.label}`}
+              style={styles.summary}
+            >
+              Overall: {summary.text}
+            </Text>
+          </View>
         }
         renderItem={({ item }) => (
           <Pressable
@@ -106,23 +114,29 @@ export function GroupsScreen() {
           </View>
         }
       />
-      <View style={styles.add}>
-        <Button title="Start a new group" onPress={create} />
-      </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
-  summary: { fontSize: 15, marginBottom: 12 },
-  row: {
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  name: { fontSize: 16, fontWeight: '500' },
-  meta: { color: '#666' },
-  add: { marginTop: 8 },
-});
+const makeStyles = ({ colors, spacing, layout }: Theme) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.lg,
+    },
+    listContent: { paddingBottom: layout.fabSize + spacing.lg * 2 },
+    summary: { fontSize: 15, marginBottom: 12 },
+    row: {
+      minHeight: 48,
+      alignItems: 'center',
+      paddingVertical: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+    },
+    name: { fontSize: 16, fontWeight: '500' },
+    meta: { color: colors.textSecondary },
+    add: { marginBottom: spacing.md },
+  });

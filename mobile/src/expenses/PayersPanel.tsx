@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Text, TextInput } from '../components/Text';
 import { formatMinorAmount } from '../money/format';
 import { Panel } from './Panel';
 import { evaluatePayers, type PayersDraft, type Person } from './draft';
@@ -24,6 +26,7 @@ export function PayersPanel({
   onDone,
   onCancel,
 }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const [payers, setPayers] = useState<PayersDraft>(initial);
   const fmt = (minor: number) => formatMinorAmount(minor, exponent);
   const evaluation = useMemo(
@@ -116,25 +119,32 @@ export function PayersPanel({
   );
 }
 
-const styles = StyleSheet.create({
-  row: { paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
-  selected: { fontWeight: '700' },
-  link: { color: '#1b6e5a' },
-  amountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 6,
-  },
-  name: { flex: 1, fontSize: 16 },
-  input: {
-    width: 120,
-    borderWidth: 1,
-    borderColor: '#bbb',
-    borderRadius: 6,
-    padding: 6,
-    textAlign: 'right',
-  },
-  ok: { color: '#1b7f3b' },
-  error: { color: '#b00020' },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    row: {
+      minHeight: 48,
+      justifyContent: 'center',
+      paddingVertical: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    selected: { fontWeight: '700' },
+    link: { color: colors.brand },
+    amountRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 6,
+    },
+    name: { flex: 1, fontSize: 16 },
+    input: {
+      width: 120,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      borderRadius: 6,
+      padding: 6,
+      textAlign: 'right',
+    },
+    ok: { color: colors.owedText },
+    error: { color: colors.errorText },
+  });

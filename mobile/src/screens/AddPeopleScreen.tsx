@@ -1,12 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-  Button,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Text } from '../components/Text';
+import { Button } from '../components/Button';
 import { useQueryClient } from '@tanstack/react-query';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
@@ -38,6 +34,7 @@ type Props = NativeStackScreenProps<MainStackParamList, 'AddPeople'>;
 
 // SCR-21. Collects people locally; nothing is sent until Done.
 export function AddPeopleScreen({ navigation, route }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const { mode } = route.params;
   const qc = useQueryClient();
   const isFriendMode = mode.kind === 'friend';
@@ -398,19 +395,28 @@ export function AddPeopleScreen({ navigation, route }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { padding: 16 },
-  section: { fontSize: 16, fontWeight: '600', marginTop: 8, marginBottom: 8 },
-  block: { marginTop: 16 },
-  hint: { color: '#555', marginBottom: 8 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
-  chip: {
-    backgroundColor: '#e6f2ee',
-    borderRadius: 16,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-  },
-  row: { paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
-  error: { color: '#b00020', fontSize: 13, marginTop: 4 },
-  done: { marginTop: 24 },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: { padding: 16 },
+    section: { fontSize: 16, fontWeight: '600', marginTop: 8, marginBottom: 8 },
+    block: { marginTop: 16 },
+    hint: { color: colors.textSecondary, marginBottom: 8 },
+    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+    chip: {
+      minHeight: 48,
+      justifyContent: 'center',
+      backgroundColor: colors.brandSubtle,
+      borderRadius: 16,
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+    },
+    row: {
+      minHeight: 48,
+      justifyContent: 'center',
+      paddingVertical: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    error: { color: colors.errorText, fontSize: 13, marginTop: 4 },
+    done: { marginTop: 24 },
+  });

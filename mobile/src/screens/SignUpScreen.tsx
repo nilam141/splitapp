@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
-import { Button, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Text } from '../components/Text';
+import { Button } from '../components/Button';
 import { useRegisterUser } from '../api/generated/splitapp';
 import { useAuth } from '../auth/AuthContext';
 import { FormField } from '../components/FormField';
@@ -25,6 +28,7 @@ function deviceTimeZone(): string {
 }
 
 export function SignUpScreen() {
+  const styles = useThemedStyles(makeStyles);
   const { startSession } = useAuth();
   const register = useRegisterUser();
   const [name, setName] = useState('');
@@ -135,14 +139,15 @@ export function SignUpScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { padding: 24 },
-  currency: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 16,
-  },
-  banner: { color: '#b00020', marginTop: 12 },
-  submit: { marginTop: 20 },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: { padding: 24 },
+    currency: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: 16,
+    },
+    banner: { color: colors.errorText, marginTop: 12 },
+    submit: { marginTop: 20 },
+  });

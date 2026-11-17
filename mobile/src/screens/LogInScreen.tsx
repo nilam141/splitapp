@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
-import { Button, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Text } from '../components/Text';
+import { Button } from '../components/Button';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { AuthStackParamList } from '../navigation/types';
 import { useLogin } from '../api/generated/splitapp';
@@ -11,6 +14,7 @@ import { AuthFormError, mapAuthError, networkError } from '../auth/errors';
 type Props = NativeStackScreenProps<AuthStackParamList, 'LogIn'>;
 
 export function LogInScreen({ route }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const { startSession } = useAuth();
   const login = useLogin();
   const [email, setEmail] = useState(route.params?.email ?? '');
@@ -89,8 +93,9 @@ export function LogInScreen({ route }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { padding: 24 },
-  banner: { color: '#b00020', marginTop: 12 },
-  submit: { marginTop: 20 },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: { padding: 24 },
+    banner: { color: colors.errorText, marginTop: 12 },
+    submit: { marginTop: 20 },
+  });

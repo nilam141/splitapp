@@ -1,5 +1,8 @@
 import React, { useLayoutEffect, useMemo } from 'react';
-import { Button, FlatList, StyleSheet, Text, View } from 'react-native';
+import { FlatList, StyleSheet, View } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Text } from '../components/Text';
+import { Button } from '../components/Button';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
@@ -24,6 +27,7 @@ type Row =
 
 // SCR-19: balance with one friend (total and breakdown) and every expense shared with them.
 export function FriendDetailScreen({ navigation, route }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const { friendId } = route.params;
   const { exponentOf } = useMoney();
   const nameOf = useNameOf(null);
@@ -78,6 +82,7 @@ export function FriendDetailScreen({ navigation, route }: Props) {
       headerRight: friend
         ? () => (
             <Button
+              variant="text"
               title="Settings"
               onPress={() =>
                 navigation.navigate('FriendSettings', { friendId })
@@ -187,12 +192,22 @@ export function FriendDetailScreen({ navigation, route }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: { padding: 16 },
-  title: { fontSize: 22, fontWeight: '700', marginBottom: 4 },
-  breakdown: { marginTop: 8 },
-  scope: { fontWeight: '600', color: '#444' },
-  month: { fontWeight: '700', marginTop: 14, marginBottom: 2, color: '#444' },
-  add: { padding: 12, borderTopWidth: StyleSheet.hairlineWidth },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    container: { padding: 16 },
+    title: { fontSize: 22, fontWeight: '700', marginBottom: 4 },
+    breakdown: { marginTop: 8 },
+    scope: { fontWeight: '600', color: colors.textPrimary },
+    month: {
+      fontWeight: '700',
+      marginTop: 14,
+      marginBottom: 2,
+      color: colors.textPrimary,
+    },
+    add: {
+      padding: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+    },
+  });

@@ -1,16 +1,15 @@
 import React from 'react';
-import {
-  ActivityIndicator,
-  Button,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { Theme, useTheme, useThemedStyles } from '../theme';
+import { Text } from './Text';
+import { Button } from './Button';
 
 export function LoadingView({ label }: { label: string }) {
+  const styles = useThemedStyles(makeStyles);
+  const { colors } = useTheme();
   return (
     <View style={styles.center}>
-      <ActivityIndicator accessibilityLabel={label} />
+      <ActivityIndicator accessibilityLabel={label} color={colors.brand} />
     </View>
   );
 }
@@ -23,6 +22,7 @@ type ErrorProps = {
 };
 
 export function ErrorView({ offline, message, onRetry }: ErrorProps) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.center}>
       <Text accessibilityRole="alert" style={styles.text}>
@@ -46,6 +46,7 @@ export function EmptyView({
   actionLabel?: string;
   onAction?: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.center}>
       <Text style={styles.title}>{title}</Text>
@@ -57,18 +58,19 @@ export function EmptyView({
   );
 }
 
-const styles = StyleSheet.create({
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 6,
-    textAlign: 'center',
-  },
-  text: { color: '#444', textAlign: 'center', marginBottom: 12 },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    center: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24,
+    },
+    title: {
+      fontSize: 18,
+      fontWeight: '600',
+      marginBottom: 6,
+      textAlign: 'center',
+    },
+    text: { color: colors.textPrimary, textAlign: 'center', marginBottom: 12 },
+  });

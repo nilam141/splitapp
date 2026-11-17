@@ -1,5 +1,7 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Theme, balanceStyle, useTheme, useThemedStyles } from '../theme';
+import { Text } from '../components/Text';
 import type { Expense } from '../api/generated/model';
 import { formatMinorAmount } from '../money/format';
 import { parseMinor } from '../money/parse';
@@ -43,6 +45,8 @@ type Props = {
 
 // One expense row (SCR-13 timeline, SCR-19 list): date, description, payer + amount, the viewer's effect.
 export function ExpenseRow({ expense, nameOf, exponentOf, onPress }: Props) {
+  const styles = useThemedStyles(makeStyles);
+  const { colors } = useTheme();
   const exponent = exponentOf(expense.total.currency);
   const fmt = (minor: number) => formatMinorAmount(minor, exponent);
   const payer =
@@ -50,7 +54,14 @@ export function ExpenseRow({ expense, nameOf, exponentOf, onPress }: Props) {
       ? nameOf(expense.payers[0].user_id)
       : `${expense.payers.length} people`;
   const net = expense.my_net?.amount_minor ?? 0;
+  const sign = balanceStyle(colors, net).sign;
   const effect =
+    net > 0
+      ? `you lent ${sign}${fmt(net)}`
+      : net < 0
+        ? `you owe ${sign}${fmt(-net)}`
+        : 'no balance change';
+  const effectLabel =
     net > 0
       ? `you lent ${fmt(net)}`
       : net < 0
@@ -73,27 +84,31 @@ export function ExpenseRow({ expense, nameOf, exponentOf, onPress }: Props) {
           {`${payer} paid ${expense.total.currency} ${fmt(expense.total.amount_minor)}`}
         </Text>
       </View>
-      <Text style={[styles.effect, net < 0 ? styles.owe : styles.lent]}>
+      <Text
+        accessibilityLabel={effectLabel}
+        style={[styles.effect, { color: balanceStyle(colors, net).text }]}
+      >
         {effect}
       </Text>
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: 10,
-  },
-  date: { width: 52, color: '#666' },
-  middle: { flex: 1 },
-  title: { fontSize: 16, fontWeight: '500' },
-  deleted: { textDecorationLine: 'line-through' },
-  sub: { color: '#555', fontSize: 13 },
-  effect: { fontSize: 13, maxWidth: 120, textAlign: 'right' },
-  lent: { color: '#1b7f3b' },
-  owe: { color: '#c25e00' },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    row: {
+      minHeight: 48,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+      gap: 10,
+    },
+    date: { width: 52, color: colors.textSecondary },
+    middle: { flex: 1 },
+    title: { fontSize: 16, fontWeight: '500' },
+    deleted: { textDecorationLine: 'line-through' },
+    sub: { color: colors.textSecondary, fontSize: 13 },
+    effect: { fontSize: 13, maxWidth: 120, textAlign: 'right' },
+  });

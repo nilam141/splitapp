@@ -1,5 +1,8 @@
 import React, { useLayoutEffect, useMemo } from 'react';
-import { Button, FlatList, StyleSheet, Text, View } from 'react-native';
+import { FlatList, StyleSheet, View } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Text } from '../components/Text';
+import { Button } from '../components/Button';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
@@ -56,6 +59,7 @@ function withMonthHeadings(items: TimelineItem[]): Row[] {
 
 // SCR-13: header, members and the timeline from GET /groups/{id}/timeline (cursor paged, newest first).
 export function GroupDetailScreen({ navigation, route }: Props) {
+  const styles = useThemedStyles(makeStyles);
   const { groupId } = route.params;
   const { user } = useAuth();
   const { exponentOf } = useMoney();
@@ -92,6 +96,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       headerRight: group
         ? () => (
             <Button
+              variant="text"
               title="Settings"
               onPress={() => navigation.navigate('GroupSettings', { groupId })}
             />
@@ -261,17 +266,36 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: { padding: 16 },
-  title: { fontSize: 22, fontWeight: '700' },
-  meta: { color: '#666', marginBottom: 8 },
-  section: { fontSize: 16, fontWeight: '600', marginTop: 20, marginBottom: 6 },
-  memberLine: { flexDirection: 'row', justifyContent: 'space-between' },
-  member: { paddingVertical: 6, fontSize: 15 },
-  month: { fontWeight: '700', marginTop: 14, marginBottom: 2, color: '#444' },
-  payment: { fontStyle: 'italic', color: '#666', paddingVertical: 10 },
-  empty: { marginTop: 32, alignItems: 'center' },
-  emptyTitle: { fontSize: 16, marginBottom: 8 },
-  add: { padding: 12, borderTopWidth: StyleSheet.hairlineWidth },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    container: { padding: 16 },
+    title: { fontSize: 22, fontWeight: '700' },
+    meta: { color: colors.textSecondary, marginBottom: 8 },
+    section: {
+      fontSize: 16,
+      fontWeight: '600',
+      marginTop: 20,
+      marginBottom: 6,
+    },
+    memberLine: { flexDirection: 'row', justifyContent: 'space-between' },
+    member: { paddingVertical: 6, fontSize: 15 },
+    month: {
+      fontWeight: '700',
+      marginTop: 14,
+      marginBottom: 2,
+      color: colors.textPrimary,
+    },
+    payment: {
+      fontStyle: 'italic',
+      color: colors.textSecondary,
+      paddingVertical: 10,
+    },
+    empty: { marginTop: 32, alignItems: 'center' },
+    emptyTitle: { fontSize: 16, marginBottom: 8 },
+    add: {
+      padding: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+    },
+  });

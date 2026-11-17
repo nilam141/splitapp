@@ -1,14 +1,15 @@
 import React from 'react';
 import {
   ActivityIndicator,
-  Button,
   FlatList,
   Modal,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
+import { Theme, useTheme, useThemedStyles } from '../theme';
+import { Text } from './Text';
+import { Button } from './Button';
 import { useListCurrencies } from '../api/generated/splitapp';
 
 type Props = {
@@ -27,6 +28,8 @@ export function CurrencyPicker({
   onClose,
   title = 'Default currency',
 }: Props) {
+  const styles = useThemedStyles(makeStyles);
+  const { colors } = useTheme();
   const query = useListCurrencies({
     query: { enabled: visible, staleTime: 24 * 60 * 60 * 1000 },
   });
@@ -34,7 +37,12 @@ export function CurrencyPicker({
 
   let body: React.ReactNode;
   if (query.isPending) {
-    body = <ActivityIndicator accessibilityLabel="Loading currencies" />;
+    body = (
+      <ActivityIndicator
+        accessibilityLabel="Loading currencies"
+        color={colors.brand}
+      />
+    );
   } else if (query.isError || query.data?.status !== 200) {
     body = (
       <View style={styles.center}>
@@ -81,10 +89,16 @@ export function CurrencyPicker({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
-  title: { fontSize: 20, fontWeight: '600', marginBottom: 12 },
-  row: { paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth },
-  selected: { fontWeight: '700' },
-  center: { padding: 24, alignItems: 'center' },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: { flex: 1, padding: 16, backgroundColor: colors.background },
+    title: { fontSize: 20, fontWeight: '600', marginBottom: 12 },
+    row: {
+      paddingVertical: 14,
+      minHeight: 48,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    selected: { fontWeight: '700' },
+    center: { padding: 24, alignItems: 'center' },
+  });

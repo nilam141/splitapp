@@ -1,5 +1,8 @@
 import React from 'react';
-import { Button, Modal, StyleSheet, Text, View } from 'react-native';
+import { Modal, StyleSheet, View } from 'react-native';
+import { Theme, useThemedStyles } from '../theme';
+import { Text } from './Text';
+import { Button } from './Button';
 
 type Props = {
   visible: boolean;
@@ -19,7 +22,9 @@ export function ConfirmDialog({
   confirmLabel = 'Confirm',
   onConfirm,
   onClose,
+  destructive = false,
 }: Props) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <Modal
       visible={visible}
@@ -38,7 +43,7 @@ export function ConfirmDialog({
             {onConfirm ? (
               <Button
                 title={confirmLabel}
-                color="#b00020"
+                destructive={destructive}
                 onPress={onConfirm}
               />
             ) : null}
@@ -49,15 +54,20 @@ export function ConfirmDialog({
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  card: { backgroundColor: '#fff', borderRadius: 8, padding: 20 },
-  title: { fontSize: 18, fontWeight: '600', marginBottom: 8 },
-  message: { fontSize: 15, color: '#333', marginBottom: 16 },
-  buttons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
-});
+const makeStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    backdrop: {
+      flex: 1,
+      backgroundColor: colors.scrim,
+      justifyContent: 'center',
+      padding: 24,
+    },
+    card: {
+      backgroundColor: colors.surfaceRaised,
+      borderRadius: 8,
+      padding: 20,
+    },
+    title: { fontSize: 18, fontWeight: '600', marginBottom: 8 },
+    message: { fontSize: 15, color: colors.textPrimary, marginBottom: 16 },
+    buttons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
+  });
