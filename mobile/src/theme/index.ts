@@ -7,7 +7,7 @@ export {
 export type { Theme } from './ThemeProvider';
 export { lightColors, darkColors, colorSchemes, brandGradient } from './colors';
 export type { ColorTokens, ColorScheme } from './colors';
-export { typography, maxFontScale } from './typography';
+export { typography, maxFontScale, fontWeight } from './typography';
 export type { TypographyVariant } from './typography';
 export { spacing, touchTarget, layout, control } from './spacing';
 export type { SpacingToken } from './spacing';

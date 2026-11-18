@@ -39,5 +39,6 @@ export const layout = {
   headerHeight: 56,
   fabSize: 56,
   listRowMinHeight: 64,
+  sectionHeaderHeight: 32,
   avatar: { sm: 32, md: 40, lg: 56, xl: 80 },
 } as const;

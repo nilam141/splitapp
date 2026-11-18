@@ -10,6 +10,14 @@
 
 ## Log
 
+**Mobile | SUI-M-03 Card, ListRow, SectionHeader, Avatar (design_system 6.3-6.5)** | status: done
+- New: `Card` (surface, radius.lg, spacing.lg, elevation 1 light / 1dp `border` dark, optional pressable with ripple), `ListRow` (min 64, 40dp leading slot, headline/callout, right-aligned trailing amount that wraps instead of ellipsizing, one `button` with a single spoken label incl. "unread", 8dp `brand` dot hidden from TalkBack, bold title when unread, optional `amountLabel` for the word form), `SectionHeader` (caption, 32dp, header role), `Avatar` (32/40/56/80, photo or up to 2 initials, dashed `borderStrong` ring for placeholders with "invited" at size >= 56, group type glyph; glyphs are plain text characters until the icon set exists, OQ-46).
+- Theme additions (tokens only, no contract change): `layout.sectionHeaderHeight` (32), `fontWeight.bold` exported from `theme/typography.ts`.
+- Not done by design: dividers inset 72dp inside a card (6.3) and sticky behavior (comes from the list); no screens use these components yet.
+- Pressable rows use a static style (ripple via `android_ripple`) because the harness cannot read function styles.
+- Checks (mobile/): prettier, `tsc --noEmit`, `eslint .` clean; noColorLiterals/noLayoutLiterals pass; all SUI-M-03 tests pass (11); full jest 713 passed, 30 failed (only the known SUI-M-04..06 tests). No tests edited.
+- Files: mobile/src/components/{Card,ListRow,SectionHeader,Avatar}.tsx, mobile/src/theme/{spacing,typography,index}.ts, docs/progress.md.
+
 **SUI-M-02 (mobile) | FormField conformed, MoneyField added** | status: done
 - `FormField` (design_system 6.2): visible `callout` label above, 56dp input (`control.fieldHeight`, new token in `src/theme/spacing.ts`), 1dp `borderStrong`, `fieldBackground`, `radius.md`; focus is a 2dp `brand` outline; error is a 2dp `error` outline, an error icon (`field-error-icon`, a token-colored "!" disc, no icon set yet, see OQ-46) and an `errorText` message in the same `field-message` slot as the new `helper` prop (error replaces helper; live region assertive for errors, polite for helper); disabled text `textDisabled`; `secureTextEntry` adds a 48dp "Show password"/"Hide password" toggle that flips `secureTextEntry`. Padding is trimmed by the extra outline width so text does not shift on focus. New optional `prefix` prop (fixed content inside the field start) used by MoneyField.
 - `MoneyField` (`src/components/MoneyField.tsx`): `amountLarge`, right-aligned, currency-code chip, keystrokes that `parseMinor(text, exponent)` rejects (3rd INR decimal, any JPY decimal incl. a bare ".") are ignored so value and emission stay unchanged; emits integer minor units or `null` when empty; no parseFloat/toFixed.

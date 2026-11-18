@@ -20,11 +20,7 @@ export type FetchInit = Omit<RequestInit, 'signal' | 'body'> & {
 // Endpoints that carry no bearer token and must never trigger a refresh.
 // Built from the generated URL helpers, so no endpoint path is written by hand.
 const isPublicAuthUrl = (url: string): boolean =>
-  [
-    getLoginUrl(),
-    getRegisterUserUrl(),
-    getRefreshTokenUrl(),
-  ].includes(url);
+  [getLoginUrl(), getRegisterUserUrl(), getRefreshTokenUrl()].includes(url);
 
 async function send<T>(
   url: string,
@@ -56,7 +52,9 @@ async function refreshSession(): Promise<boolean> {
     return false;
   }
   try {
-    const res = await refreshTokenRequest({ refresh_token: tokens.refreshToken });
+    const res = await refreshTokenRequest({
+      refresh_token: tokens.refreshToken,
+    });
     if (res.status === 200) {
       await saveTokens({
         accessToken: res.data.access_token,

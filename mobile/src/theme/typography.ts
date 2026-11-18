@@ -78,3 +78,9 @@ export const maxFontScale = {
   fixedControl: 1.3,
   flexible: 2,
 } as const;
+
+// Emphasis weight for state changes inside a variant (e.g. an unread row title). Keeps weight literals in the theme.
+export const fontWeight = { bold: '700' } as const satisfies Record<
+  string,
+  TextStyle['fontWeight']
+>;
