@@ -22,6 +22,7 @@ import { ErrorView, LoadingView } from '../components/StateViews';
 import { ExpenseRow, monthLabel } from '../expenses/ExpenseRow';
 import { useNameOf } from '../expenses/useNames';
 import { useMoney } from '../money/useMoney';
+import { PaymentRow } from '../payments/PaymentRow';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'GroupDetail'>;
 
@@ -62,7 +63,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   const styles = useThemedStyles(makeStyles);
   const { groupId } = route.params;
   const { user } = useAuth();
-  const { exponentOf } = useMoney();
+  const { exponentOf, format } = useMoney();
   const nameOf = useNameOf(groupId);
   const query = useGetGroup(groupId);
   const group = query.data?.status === 200 ? query.data.data : undefined;
@@ -156,7 +157,12 @@ export function GroupDetailScreen({ navigation, route }: Props) {
         <Text style={styles.meta}>You are all settled up in this group</Text>
       ) : null}
       <Button
+        title="Settle up"
+        onPress={() => navigation.navigate('SettleUp', { groupId })}
+      />
+      <Button
         title="Balances"
+        variant="secondary"
         onPress={() => navigation.navigate('GroupBalances', { groupId })}
       />
 
@@ -252,8 +258,18 @@ export function GroupDetailScreen({ navigation, route }: Props) {
               />
             );
           }
-          // Payment rows are styled and wired in S5-M-3; until then a neutral line keeps the server order visible.
-          return <Text style={styles.payment}>Payment recorded</Text>;
+          // kind: settlement renders as a payment row in the position the server gave it (S5-M-3, no merging).
+          const st = t.settlement;
+          return (
+            <PaymentRow
+              settlement={st}
+              nameOf={nameOf}
+              amountText={format(st.amount.amount_minor, st.amount.currency)}
+              onPress={() =>
+                navigation.navigate('PaymentDetail', { settlementId: st.id })
+              }
+            />
+          );
         }}
       />
       <View style={styles.add}>

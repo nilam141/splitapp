@@ -131,12 +131,6 @@ class TimelineExpense(BaseModel):
     expense: ExpenseOut
 
 
-class TimelinePage(BaseModel):
-    # Settlement items join the union in S5-B-4.
-    items: list[TimelineExpense]
-    next_cursor: str | None = None
-
-
 class CommentOut(BaseModel):
     id: uuid.UUID
     kind: Literal["user", "system"]

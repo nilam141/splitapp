@@ -20,7 +20,7 @@ export interface Friend {
   balances: BalanceLine[];
   breakdown: ScopedBalance[];
   /**
-   * Derived, not stored. When every balance with this friend last became 0. null = a balance is currently non-zero, or there has been no activity yet. The client hides a friend behind "show N settled-up friends" only when this is non-null and older than 30 days.
+   * Derived, not stored. When every balance with this friend last became 0. null = a balance is currently non-zero, or there has been no activity yet. When all balances are zero it is the later of the latest live expense created_at across the shared scopes (including groups the viewer has left, excluding soft-deleted groups) and the time the viewer left that shared group (group_members.left_at). The client hides a friend behind "show N settled-up friends" ("show 1 settled-up friend" when N is 1) only when this is non-null and older than 30 days.
    * @nullable
    */
   settled_up_since?: string | null;

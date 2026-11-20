@@ -1,9 +1,11 @@
 import type { QueryClient } from '@tanstack/react-query';
 import type { Error as ApiError } from './generated/model';
 import {
+  getGetOverallBalancesUrl,
   getListExpensesUrl,
   getListFriendsUrl,
   getListGroupsUrl,
+  getListSettlementsUrl,
 } from './generated/splitapp';
 
 type Result = { status: number; data?: unknown };
@@ -60,3 +62,19 @@ export const invalidateGroups = (qc: QueryClient) =>
 /** listExpenses, getExpense and its comments (everything under /expenses). */
 export const invalidateExpenses = (qc: QueryClient) =>
   startsWithUrl(qc, getListExpensesUrl().split('?')[0]);
+
+/** listSettlements and getSettlement. */
+export const invalidateSettlements = (qc: QueryClient) =>
+  startsWithUrl(qc, getListSettlementsUrl().split('?')[0]);
+
+/**
+ * Everything a payment changes: group balances and timelines, friend balances, settlements and overall balances.
+ * Run after a settlement is created, edited, deleted or restored.
+ */
+export const invalidateAfterPayment = (qc: QueryClient) =>
+  Promise.all([
+    invalidateGroups(qc),
+    invalidateFriends(qc),
+    invalidateSettlements(qc),
+    startsWithUrl(qc, getGetOverallBalancesUrl()),
+  ]);

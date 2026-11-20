@@ -1,6 +1,6 @@
 """Balances read from the database (S4-B-2). Rows are loaded in a fixed number of queries and handed to the pure
 functions in app.balances; there is no per-expense or per-member query. Only live (non-deleted) expenses count.
-Settlements join in with Slice 5 (the table does not exist yet); the pure functions already accept them."""
+Live settlements join the same queries (S5-B-1) and are handed to the same pure functions."""
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app import balances as pure
 from app.errors import ApiError
-from app.models import Expense, ExpensePayer, ExpenseSplit, Group, GroupMember
+from app.models import Expense, ExpensePayer, ExpenseSplit, Group, GroupMember, Settlement
 from app.schemas import BalanceLine, GroupBalances, GroupBalanceMember, OverallBalances, OverallFriend, Transfer
 
 
@@ -46,6 +46,17 @@ def _load_expenses(db: Session, cond) -> list[dict[str, Any]]:
     return list(recs.values())
 
 
+def _load_settlements(db: Session, cond) -> list[dict[str, Any]]:
+    """Live settlements matching `cond` as plain records (the shape app.balances expects, plus id, group_id,
+    created_at): one query."""
+    return [{"id": sid, "group_id": gid, "currency": cur, "from_user_id": frm, "to_user_id": to,
+             "amount_minor": amount, "created_at": _aware(created)}
+            for sid, gid, cur, frm, to, amount, created in db.execute(
+                select(Settlement.id, Settlement.group_id, Settlement.currency, Settlement.from_user_id,
+                       Settlement.to_user_id, Settlement.amount_minor, Settlement.created_at)
+                .where(Settlement.deleted_at.is_(None), cond))]
+
+
 @dataclass
 class GroupData:
     id: uuid.UUID
@@ -55,16 +66,18 @@ class GroupData:
     canonical: list[uuid.UUID]          # every member ever, by sort_index (departed members keep their place)
     active: list[uuid.UUID]             # current members, canonical order
     expenses: list[dict[str, Any]] = field(default_factory=list)
+    settlements: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def nets(self) -> dict[str, dict[uuid.UUID, int]]:
-        return pure.net_balances(self.expenses)
+        return pure.net_balances(self.expenses, self.settlements)
 
     def settled_up_since(self) -> datetime | None:
         """Latest live event once every net in the group is 0; null while any net is non-zero or with no activity."""
-        if not self.expenses or any(v for nets in self.nets.values() for v in nets.values()):
+        events = [*self.expenses, *self.settlements]
+        if not events or any(v for nets in self.nets.values() for v in nets.values()):
             return None
-        return max(e["created_at"] for e in self.expenses)
+        return max(e["created_at"] for e in events)
 
 
 def load_groups(db: Session, group_ids: list[uuid.UUID]) -> dict[uuid.UUID, GroupData]:
@@ -81,6 +94,8 @@ def load_groups(db: Session, group_ids: list[uuid.UUID]) -> dict[uuid.UUID, Grou
             data[gid].active.append(uid)
     for rec in _load_expenses(db, Expense.group_id.in_(group_ids)):
         data[rec["group_id"]].expenses.append(rec)
+    for rec in _load_settlements(db, Settlement.group_id.in_(group_ids)):
+        data[rec["group_id"]].settlements.append(rec)
     return data
 
 
@@ -99,7 +114,7 @@ def group_balances(db: Session, me_id: uuid.UUID, group_id: uuid.UUID) -> GroupB
     nets = g.nets
     members = [GroupBalanceMember(user_id=u, balances=lines({c: n.get(u, 0) for c, n in nets.items()}))
                for u in g.active]
-    by_currency = pure.suggested_transfers(g.expenses, (), g.canonical, g.simplify_debts)
+    by_currency = pure.suggested_transfers(g.expenses, g.settlements, g.canonical, g.simplify_debts)
     transfers = [Transfer(from_user_id=f, to_user_id=t, amount_minor=a, currency=c)
                  for c in sorted(by_currency) for f, t, a in by_currency[c]]
     return GroupBalances(group_id=group_id, simplified=g.simplify_debts, members=members, transfers=transfers)
@@ -147,6 +162,8 @@ def compute_pairs(db: Session, me_id: uuid.UUID, with_groups: bool = True) -> Pa
     involving_me = (Expense.id.in_(select(ExpensePayer.expense_id).where(ExpensePayer.user_id == me_id))
                     | Expense.id.in_(select(ExpenseSplit.expense_id).where(ExpenseSplit.user_id == me_id)))
     non_group = _load_expenses(db, Expense.group_id.is_(None) & involving_me)
+    non_group_settlements = _load_settlements(db, Settlement.group_id.is_(None)
+                                              & ((Settlement.from_user_id == me_id) | (Settlement.to_user_id == me_id)))
 
     def note(expense: dict[str, Any], at: datetime | None = None) -> None:
         parties = {u for u, _ in expense["payers"]} | {u for u, _ in expense["splits"]}
@@ -156,21 +173,33 @@ def compute_pairs(db: Session, me_id: uuid.UUID, with_groups: bool = True) -> Pa
                 if p not in pairs.last_event or when > pairs.last_event[p]:
                     pairs.last_event[p] = when
 
+    def note_settlement(st: dict[str, Any]) -> None:
+        other = st["to_user_id"] if st["from_user_id"] == me_id else st["from_user_id"]
+        if other not in pairs.last_event or st["created_at"] > pairs.last_event[other]:
+            pairs.last_event[other] = st["created_at"]
+
     for g in groups:
-        mine = _my_edges(me_id, pure.suggested_transfers(g.expenses, (), g.canonical, g.simplify_debts))
+        mine = _my_edges(me_id, pure.suggested_transfers(g.expenses, g.settlements, g.canonical, g.simplify_debts))
         pairs.groups.append((g, mine))
         for f, cur_map in mine.items():
             for cur, v in cur_map.items():
                 pairs.total[f][cur] += v
         for e in g.expenses:
             note(e)
-    users = sorted({u for e in non_group for u, _ in (*e["payers"], *e["splits"])}, key=lambda u: u.int)
-    for f, cur_map in _my_edges(me_id, pure.pairwise_edges(non_group, (), users)).items():
+        for st in g.settlements:
+            if me_id in (st["from_user_id"], st["to_user_id"]):
+                note_settlement(st)
+    users = sorted({u for e in non_group for u, _ in (*e["payers"], *e["splits"])}
+                   | {u for st in non_group_settlements for u in (st["from_user_id"], st["to_user_id"])},
+                   key=lambda u: u.int)
+    for f, cur_map in _my_edges(me_id, pure.pairwise_edges(non_group, non_group_settlements, users)).items():
         for cur, v in cur_map.items():
             pairs.non_group[f][cur] += v
             pairs.total[f][cur] += v
     for e in non_group:
         note(e)
+    for st in non_group_settlements:
+        note_settlement(st)
     if with_groups:
         # Groups I have left (live groups only) still date the settled-up state: the later of the expense and my
         # leave time. Only groups I was a member of are read; they never add to balances (the leave guard keeps

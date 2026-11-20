@@ -233,7 +233,7 @@ graph TD
 | Tab bar | 4 tabs | – | Friends, Groups, Activity, Account; the last tab is remembered |
 | Add expense | floating button | – | hidden on Account |
 | Search icon | icon | – | V2, gated (F-47) |
-| Activity badge | counter | – | `unread_count` from `GET /activity` (decided 2026-11-09, OQ-36); the server does not cap it, the client shows the number up to 99 and "99+" above 99; hidden at 0. Refreshed on launch, on foreground and after `POST /activity/read`; opening the Activity tab (SCR-10) calls `POST /activity/read` and sets the badge to 0 |
+| Activity badge | counter | – | `unread_count` from `GET /activity` (decided 2026-11-09, OQ-36); the caller's own actions are never counted (owner decision 2026-11-19); the server does not cap it, the client shows the number up to 99 and "99+" above 99; hidden at 0. Refreshed on launch, on foreground and after `POST /activity/read`; opening the Activity tab (SCR-10) calls `POST /activity/read` and sets the badge to 0 |
 
 **Actions**
 | Action | Result | Navigates to |
@@ -307,7 +307,7 @@ graph TD
 **Fields / UI elements**
 | Element | Type | Required | Validation / notes |
 |---|---|---|---|
-| Activity row | icon, actor + verb + object, effect ("you owe 30.00"), relative time | – | unread rows bold |
+| Activity row | icon, actor + verb + object, effect ("you owe 30.00"), relative time | – | unread rows bold (`is_unread`; your own actions are never unread) |
 | Date headers | section header | – | Today / Yesterday / date |
 
 **Actions**

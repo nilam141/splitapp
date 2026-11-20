@@ -985,7 +985,7 @@ components:
           type: array
           description: Change in the viewer's balance caused by this event (positive = gets back)
           items: { $ref: '#/components/schemas/BalanceLine' }
-        is_unread: { type: boolean }
+        is_unread: { type: boolean, description: "Always false for entries the viewer performed themselves." }
         created_at: { type: string, format: date-time }
     ActivityPage:
       type: object
@@ -1000,7 +1000,7 @@ components:
           minimum: 0
           description: >
             Total number of the caller's activity entries newer than `users.activity_last_read_at` (all of them when it
-            is null), not capped and not limited to this page. It ignores the `group_id` filter, `limit` and `cursor`, is
+            is null), excluding entries the caller performed themselves (those stay in the feed with `is_unread = false`), not capped and not limited to this page. It ignores the `group_id` filter, `limit` and `cursor`, is
             present on every page, and equals the number of items anywhere in the feed with `is_unread = true`. The client
             shows it capped at "99+". `POST /activity/read` sets it to 0.
           example: 3
@@ -2157,7 +2157,7 @@ paths:
       tags: [activity]
       operationId: listActivity
       summary: Activity feed for the current user, newest first (cursor paginated)
-      description: Every page carries `unread_count`, the caller's total unread entries (not capped, independent of `group_id`, `limit` and `cursor`).
+      description: Every page carries `unread_count`, the caller's total unread entries (the caller's own actions are never unread; not capped, independent of `group_id`, `limit` and `cursor`).
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'

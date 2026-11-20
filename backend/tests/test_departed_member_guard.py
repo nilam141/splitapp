@@ -5,7 +5,7 @@ non-group restore after friend removal returns 200, and GET /groups/{id}/balance
 New rule: edit, delete and restore of a group expense with a departed payer or participant are 409
 EXPENSE_HAS_DEPARTED_MEMBER (after the 404/403 and ALREADY_DELETED/NOT_DELETED checks); rejoining makes them work.
 A non-group restore is 409 EXPENSE_HAS_DEPARTED_MEMBER while the participants are not friends.
-Vector 66 (settlements) belongs to S5 and is a documented skip.
+Vector 66 (settlements) is in test_settlements.py (S5-Q-1).
 """
 import uuid
 
@@ -191,7 +191,4 @@ def test_vector_67_group_balances_availability(client, w):
     assert client.get(f"/groups/{gid}/balances", headers=h(outsider)).status_code == 403
 
 
-@pytest.mark.skip(reason="Vector 66 (settlements with a departed party, non-group restore after friend removal) needs "
-                         "the settlements API: runs in S5-Q-1 after S5-B-2")
-def test_vector_66_settlement_departed_party_is_409():
-    raise AssertionError("S5")
+# Vector 66 (settlements, departed party) lives in tests/test_settlements.py (S5-Q-1), gated on S5-B-2.

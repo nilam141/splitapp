@@ -9,9 +9,10 @@ from app.models.notification import Notification
 from app.models.password_reset_token import PasswordResetToken
 from app.models.rate_limit import RateLimitEvent
 from app.models.refresh_token import RefreshToken
+from app.models.settlement import Settlement
 from app.models.user import User
 
 __all__ = [
     "ActivityLog", "ActivityRecipient", "Comment", "Expense", "ExpensePayer", "ExpenseSplit", "RateLimitEvent", "Category", "Currency", "Friendship", "Group", "GroupMember", "IdempotencyKey", "Notification",
-    "PasswordResetToken", "RefreshToken", "User",
+    "PasswordResetToken", "RefreshToken", "Settlement", "User",
 ]

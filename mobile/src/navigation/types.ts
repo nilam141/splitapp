@@ -33,6 +33,22 @@ export type MainStackParamList = {
   ExpenseDetail: { expenseId: string };
   FriendDetail: { friendId: string };
   FriendSettings: { friendId: string };
+  /** SCR-30: exactly one of groupId (group scope) or friendId (friend scope). */
+  SettleUp: { groupId?: string; friendId?: string };
+  /**
+   * SCR-31: record (from, to, amount prefilled from the tapped balance) or edit (settlementId).
+   * owedMinor is what the payer owes in `currency` (for the overpay confirmation); omit when unknown.
+   */
+  RecordPayment: {
+    settlementId?: string;
+    groupId?: string | null;
+    fromUserId?: string;
+    toUserId?: string;
+    amountMinor?: number;
+    currency?: string;
+    owedMinor?: number;
+  };
+  PaymentDetail: { settlementId: string };
 };
 
 export type RootStackParamList = {

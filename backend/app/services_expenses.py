@@ -15,7 +15,7 @@ from sqlalchemy import and_, delete, func, or_, select, union, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app import idempotency
+from app import activity, idempotency
 from app.errors import ApiError
 from app.models import (Category, Comment, Currency, Expense, ExpensePayer, ExpenseSplit, Group, GroupMember, User)
 from app.pagination import Key, aware, decode, encode
@@ -53,6 +53,32 @@ def _invalid(field: str, message: str) -> ApiError:
 
 def _split_error(err: SplitError) -> ApiError:
     return ApiError(422, err.code, _MESSAGES.get(err.code, "Invalid expense"), err.details)
+
+
+# ---------- activity (S5-B-3) ----------
+def _nets(payers: Payers, rows: SplitRows) -> dict[uuid.UUID, int]:
+    """Each user's net on one expense: paid minus owed (integer minor units)."""
+    net: dict[uuid.UUID, int] = {}
+    for u, paid in payers:
+        net[u] = net.get(u, 0) + paid
+    for u, owed, _, _ in rows:
+        net[u] = net.get(u, 0) - owed
+    return net
+
+
+def _log_expense(db: Session, me: User, action: str, e: Expense, before: dict[uuid.UUID, int] | None,
+                 after: dict[uuid.UUID, int] | None, previous_total: int | None = None) -> None:
+    """One activity row for everyone on the expense and the actor. A user's effect is `after - before` of their net
+    (created: after only; deleted: minus before; restored: after; edited: the difference)."""
+    before, after = before or {}, after or {}
+    users = set(before) | set(after) | {me.id}
+    payload: dict[str, Any] = {"description": e.description,
+                               "total": {"amount_minor": e.total_amount_minor, "currency": e.currency},
+                               "actor_name": me.name}
+    if previous_total is not None:
+        payload["previous_total"] = {"amount_minor": previous_total, "currency": e.currency}
+    activity.record(db, me.id, action, "expense", e.id, e.group_id, payload, users,
+                    {u: {e.currency: after.get(u, 0) - before.get(u, 0)} for u in users})
 
 
 # ---------- reading rows ----------
@@ -235,6 +261,7 @@ def _create(db: Session, me: User, req: ExpenseCreate, group_id: uuid.UUID | Non
     db.add(e)
     db.flush()
     _write_rows(db, e.id, payers, rows)
+    _log_expense(db, me, "expense.created", e, None, _nets(payers, rows))
     return 201, expense_out(db, e, me.id).model_dump(mode="json")
 
 
@@ -429,6 +456,9 @@ def update_expense(db: Session, me: User, expense_id: uuid.UUID, req: ExpenseUpd
         db.execute(delete(ExpensePayer).where(ExpensePayer.expense_id == e.id))
         db.execute(delete(ExpenseSplit).where(ExpenseSplit.expense_id == e.id))
         _write_rows(db, e.id, payers, rows)
+    db.refresh(e)
+    _log_expense(db, me, "expense.updated", e, _nets(stored_payers, stored_rows), _nets(payers, rows),
+                 old_total if total != old_total else None)
     if "total_amount_minor" in values:
         exponent = db.get(Currency, e.currency).exponent
         db.add(Comment(id=uuid.uuid4(), expense_id=e.id, user_id=None, kind="system", created_at=now, updated_at=now,
@@ -455,8 +485,9 @@ def delete_expense(db: Session, me: User, expense_id: uuid.UUID) -> ExpenseOut:
     if res.rowcount != 1:
         db.rollback()
         raise ApiError(409, "ALREADY_DELETED", "The expense has already been deleted")
-    db.commit()
     db.refresh(e)
+    _log_expense(db, me, "expense.deleted", e, _nets(_payers_of(db, e.id), _splits_of(db, e.id)), None)
+    db.commit()
     return expense_out(db, e, me.id)
 
 
@@ -476,8 +507,9 @@ def restore_expense(db: Session, me: User, expense_id: uuid.UUID) -> ExpenseOut:
     if res.rowcount != 1:
         db.rollback()
         raise ApiError(409, "NOT_DELETED", "The expense is not deleted")
-    db.commit()
     db.refresh(e)
+    _log_expense(db, me, "expense.restored", e, None, _nets(_payers_of(db, e.id), _splits_of(db, e.id)))
+    db.commit()
     return expense_out(db, e, me.id)
 
 
@@ -511,5 +543,8 @@ def create_comment(db: Session, me: User, expense_id: uuid.UUID, req: CommentCre
     c = Comment(id=uuid.uuid4(), expense_id=e.id, user_id=me.id, kind="user", body=req.body, created_at=now,
                 updated_at=now)
     db.add(c)
+    payload = {"description": e.description, "body": req.body, "actor_name": me.name}
+    users = {u for u, _ in _payers_of(db, e.id)} | {r[0] for r in _splits_of(db, e.id)} | {me.id}
+    activity.record(db, me.id, "comment.created", "comment", c.id, e.group_id, payload, users)
     db.commit()
     return _comment_out(c, me)

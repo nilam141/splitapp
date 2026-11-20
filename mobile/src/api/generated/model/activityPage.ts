@@ -17,7 +17,7 @@ export interface ActivityPage {
   /** @nullable */
   next_cursor: string | null;
   /**
-   * Total number of the caller's activity entries newer than `users.activity_last_read_at` (all of them when it is null), not capped and not limited to this page. It ignores the `group_id` filter, `limit` and `cursor`, is present on every page, and equals the number of items anywhere in the feed with `is_unread = true`. The client shows it capped at "99+". `POST /activity/read` sets it to 0.
+   * Total number of the caller's activity entries newer than `users.activity_last_read_at` (all of them when it is null), excluding entries the caller performed themselves (those stay in the feed with `is_unread = false`), not capped and not limited to this page. It ignores the `group_id` filter, `limit` and `cursor`, is present on every page, and equals the number of items anywhere in the feed with `is_unread = true`. The client shows it capped at "99+". `POST /activity/read` sets it to 0.
    * @minimum 0
    */
   unread_count: number;

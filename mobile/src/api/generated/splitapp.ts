@@ -5750,10 +5750,17 @@ export type getGroupBalancesResponse403 = {
   status: 403;
 };
 
+export type getGroupBalancesResponse404 = {
+  data: NotFoundResponse;
+  status: 404;
+};
+
 export type getGroupBalancesResponseSuccess = getGroupBalancesResponse200 & {
   headers: Headers;
 };
-export type getGroupBalancesResponseError = getGroupBalancesResponse403 & {
+export type getGroupBalancesResponseError = (
+  getGroupBalancesResponse403 | getGroupBalancesResponse404
+) & {
   headers: Headers;
 };
 
@@ -5765,7 +5772,7 @@ export const getGetGroupBalancesUrl = (id: string) => {
 };
 
 /**
- * Transfers are simplified (business_rules §5) when the group's simplify_debts is true, otherwise pairwise (§4.2). Per currency.
+ * Transfers are simplified (business_rules §5) when the group's simplify_debts is true, otherwise pairwise (§4.2). Per currency. Also available for a soft-deleted group (read-only, like GET /groups/{id}); only a current member may call it (403 otherwise, including a member who left); an unknown group id returns 404.
  * @summary Member nets and suggested transfers for a group
  */
 export const getGroupBalances = async (
@@ -5784,7 +5791,7 @@ export const getGetGroupBalancesQueryKey = (id: string) => {
 
 export const getGetGroupBalancesQueryOptions = <
   TData = Awaited<ReturnType<typeof getGroupBalances>>,
-  TError = ForbiddenResponse,
+  TError = ForbiddenResponse | NotFoundResponse,
 >(
   id: string,
   options?: {
@@ -5821,11 +5828,11 @@ export const getGetGroupBalancesQueryOptions = <
 export type GetGroupBalancesQueryResult = NonNullable<
   Awaited<ReturnType<typeof getGroupBalances>>
 >;
-export type GetGroupBalancesQueryError = ForbiddenResponse;
+export type GetGroupBalancesQueryError = ForbiddenResponse | NotFoundResponse;
 
 export function useGetGroupBalances<
   TData = Awaited<ReturnType<typeof getGroupBalances>>,
-  TError = ForbiddenResponse,
+  TError = ForbiddenResponse | NotFoundResponse,
 >(
   id: string,
   options: {
@@ -5852,7 +5859,7 @@ export function useGetGroupBalances<
 };
 export function useGetGroupBalances<
   TData = Awaited<ReturnType<typeof getGroupBalances>>,
-  TError = ForbiddenResponse,
+  TError = ForbiddenResponse | NotFoundResponse,
 >(
   id: string,
   options?: {
@@ -5879,7 +5886,7 @@ export function useGetGroupBalances<
 };
 export function useGetGroupBalances<
   TData = Awaited<ReturnType<typeof getGroupBalances>>,
-  TError = ForbiddenResponse,
+  TError = ForbiddenResponse | NotFoundResponse,
 >(
   id: string,
   options?: {
@@ -5902,7 +5909,7 @@ export function useGetGroupBalances<
 
 export function useGetGroupBalances<
   TData = Awaited<ReturnType<typeof getGroupBalances>>,
-  TError = ForbiddenResponse,
+  TError = ForbiddenResponse | NotFoundResponse,
 >(
   id: string,
   options?: {
@@ -7167,7 +7174,7 @@ export const getListActivityUrl = (params?: ListActivityParams) => {
 };
 
 /**
- * Every page carries `unread_count`, the caller's total unread entries (not capped, independent of `group_id`, `limit` and `cursor`).
+ * Every page carries `unread_count`, the caller's total unread entries (the caller's own actions are never unread; not capped, independent of `group_id`, `limit` and `cursor`).
  * @summary Activity feed for the current user, newest first (cursor paginated)
  */
 export const listActivity = async (

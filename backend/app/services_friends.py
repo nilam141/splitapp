@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app import activity, idempotency, outbox, security, services_balances
 from app.errors import ApiError
-from app.models import Expense, ExpensePayer, ExpenseSplit, Friendship, Group, GroupMember, User
+from app.models import Expense, ExpensePayer, ExpenseSplit, Friendship, Group, GroupMember, Settlement, User
 from app.schemas import Friend, FriendCreate, FriendCreated, ScopedBalance, UserPublic
 from app.services_auth import NOTIFICATION_KEYS
 
@@ -129,10 +129,20 @@ def _soft_delete_pair_expenses(db: Session, a: uuid.UUID, b: uuid.UUID, actor: u
         deleted_at=now, deleted_by=actor, version=Expense.version + 1, updated_at=now))
 
 
+def _soft_delete_pair_settlements(db: Session, a: uuid.UUID, b: uuid.UUID, actor: uuid.UUID, now: datetime) -> None:
+    """Soft-delete every live non-group settlement between exactly a and b, in either direction (OQ-37b). Group
+    settlements and other users' settlements are untouched."""
+    db.execute(update(Settlement).where(
+        Settlement.group_id.is_(None), Settlement.deleted_at.is_(None),
+        or_((Settlement.from_user_id == a) & (Settlement.to_user_id == b),
+            (Settlement.from_user_id == b) & (Settlement.to_user_id == a)))
+        .values(deleted_at=now, deleted_by=actor, version=Settlement.version + 1, updated_at=now))
+
+
 def remove_friend(db: Session, me: User, other_id: uuid.UUID) -> None:
     """business_rules 10.2: a shared live group blocks removal (409, even with an explicit row); otherwise the
     explicit row becomes removed and the pair's non-group expenses are soft-deleted in the same transaction,
-    whatever the balance (OQ-32). Non-group settlements follow with S5-B-4."""
+    whatever the balance (OQ-32); so are the pair's non-group settlements (OQ-37b)."""
     if other_id == me.id:
         raise ApiError(404, "NOT_FOUND", "Friend not found")
     shared = shared_group_ids(db, me.id, other_id)
@@ -148,6 +158,7 @@ def remove_friend(db: Session, me: User, other_id: uuid.UUID) -> None:
     row.removed_at = now
     row.updated_at = now
     _soft_delete_pair_expenses(db, me.id, other_id, me.id, now)
+    _soft_delete_pair_settlements(db, me.id, other_id, me.id, now)
     activity.record(db, me.id, "friend.removed", "friendship", other_id, None,
                     {"friend_id": str(other_id), "friend_name": other.name, "actor_name": me.name},
                     [me.id, other_id])

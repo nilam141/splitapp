@@ -121,6 +121,10 @@ export function FriendDetailScreen({ navigation, route }: Props) {
         {friend.user.name}
       </Text>
       <BalanceLines lines={friend.balances} />
+      <Button
+        title="Settle up"
+        onPress={() => navigation.navigate('SettleUp', { friendId })}
+      />
       {friend.breakdown.map((b, i) => (
         <View
           key={`${b.scope}-${b.group_id ?? 'ng'}-${i}`}

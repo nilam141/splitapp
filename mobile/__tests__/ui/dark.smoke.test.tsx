@@ -31,6 +31,7 @@ const files = fs
 /** initialParams per screen (the ids match the data seeded in beforeEach). Screens not listed take none. */
 const PARAMS: Record<string, object | undefined> = {
   AccountScreen: undefined,
+  ActivityScreen: undefined,
   AddPeopleScreen: { mode: { kind: 'friend' } },
   CreateGroupScreen: undefined,
   ExpenseDetailScreen: { expenseId: 'x-seed' },
@@ -44,8 +45,11 @@ const PARAMS: Record<string, object | undefined> = {
   GroupsScreen: undefined,
   LaunchScreen: undefined,
   LogInScreen: undefined,
+  PaymentDetailScreen: { settlementId: 's-seed' },
   PlaceholderScreen: { title: 'Activity' },
+  RecordPaymentScreen: { groupId: 'g-seed' },
   SessionExpiredScreen: { email: 'asha@example.com' },
+  SettleUpScreen: { groupId: 'g-seed' },
   SignUpScreen: undefined,
   SimplifyExplainerScreen: { groupId: 'g-seed' },
   WelcomeScreen: undefined,

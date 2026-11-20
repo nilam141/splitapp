@@ -10,7 +10,8 @@ from app.db import get_db
 from app.errors import ApiError
 from app.models import User
 from app.schemas_expenses import (CommentCreate, CommentOut, CommentPage, ExpenseCreate, ExpenseOut, ExpensePage,
-                                  ExpenseUpdate, TimelinePage)
+                                  ExpenseUpdate)
+from app.schemas_settlements import TimelinePage
 
 router = APIRouter(tags=["expenses"])
 

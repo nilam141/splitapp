@@ -12,13 +12,12 @@ import { DEFAULT_TAB, loadLastTab, saveLastTab } from './lastTab';
 import { AccountScreen } from '../screens/AccountScreen';
 import { FriendsScreen } from '../screens/FriendsScreen';
 import { GroupsScreen } from '../screens/GroupsScreen';
-import { PlaceholderScreen } from '../screens/PlaceholderScreen';
+import { ActivityScreen } from '../screens/ActivityScreen';
+import { formatBadge } from '../activity/badge';
+import { useUnreadCount } from '../activity/useUnreadBadge';
 import { LoadingView } from '../components/StateViews';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TabIcon } from './TabIcons';
-
-// The feed itself ships in a later slice.
-const ActivityPlaceholder = () => <PlaceholderScreen title="Activity" />;
 
 type IconProps = { color: string; focused: boolean };
 const friendsIcon = (p: IconProps) => <TabIcon name="Friends" {...p} />;
@@ -60,6 +59,8 @@ function AppTabBar(props: BottomTabBarProps) {
 export function TabNavigator() {
   const { colors, isDark, layout } = useTheme();
   const insets = useSafeAreaInsets();
+  const unread = useUnreadCount();
+  const badge = formatBadge(unread);
   const [initial, setInitial] = useState<keyof TabParamList | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -121,10 +122,18 @@ export function TabNavigator() {
       />
       <Tab.Screen
         name="Activity"
-        component={ActivityPlaceholder}
+        component={ActivityScreen}
         options={{
-          tabBarAccessibilityLabel: 'Activity',
+          tabBarAccessibilityLabel: badge
+            ? `Activity, ${unread} unread`
+            : 'Activity',
           tabBarIcon: activityIcon,
+          tabBarBadge: badge,
+          // Neutral pill (design_system 6.7): not brand, not error.
+          tabBarBadgeStyle: {
+            backgroundColor: colors.inverseSurface,
+            color: colors.inverseText,
+          },
         }}
       />
       <Tab.Screen

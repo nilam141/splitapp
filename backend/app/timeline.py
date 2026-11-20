@@ -1,10 +1,10 @@
 """Group timeline (S3-B-6): a read-time merge of the group's dated items, newest first.
 
 Every source returns its own next `limit` items strictly after the cursor key, already ordered by
-(date desc, created_at desc, id desc); the merge sorts the union on the same key and cuts at `limit`. Until S5-B-4 the
-only source is expenses. The settlement source joins SOURCES then, with `settled_on` as its date; nothing else changes,
-and the paging stays a keyset over (date, created_at, id), so inserts and deletes between pages never duplicate or
-skip an item that existed at both times."""
+(date desc, created_at desc, id desc); the merge sorts the union on the same key and cuts at `limit`. The sources are
+expenses (date = `expense_date`) and settlements (date = `settled_on`); the paging is a keyset over
+(date, created_at, id), so inserts and deletes between pages never duplicate or skip an item that existed at both
+times."""
 import uuid
 from collections.abc import Callable
 
@@ -12,12 +12,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import services_expenses as svc
+from app import services_settlements
 from app.models import Expense, User
 from app.pagination import Key, decode, encode
-from app.schemas_expenses import TimelineExpense, TimelinePage
+from app.schemas_expenses import TimelineExpense
+from app.schemas_settlements import TimelinePage, TimelineSettlement
 from app.services_groups import _load_for_member
 
-Item = tuple[Key, TimelineExpense]  # S5-B-4 widens the value to a union with TimelineSettlement
+Item = tuple[Key, TimelineExpense | TimelineSettlement]
 Source = Callable[[Session, User, uuid.UUID, bool, Key | None, int], list[Item]]
 
 
@@ -31,7 +33,15 @@ def _expense_source(db: Session, me: User, group_id: uuid.UUID, include_deleted:
             for e, out in zip(rows, svc._outs(db, rows, me.id))]
 
 
-SOURCES: list[Source] = [_expense_source]
+def _settlement_source(db: Session, me: User, group_id: uuid.UUID, include_deleted: bool, after: Key | None,
+                       limit: int) -> list[Item]:
+    rows = services_settlements.group_rows(db, group_id, include_deleted, after, limit)
+    return [(services_settlements.settlement_key(s), TimelineSettlement(date=s.settled_on,
+                                                                         settlement=services_settlements.out(s)))
+            for s in rows]
+
+
+SOURCES: list[Source] = [_expense_source, _settlement_source]
 
 
 def list_timeline(db: Session, me: User, group_id: uuid.UUID, limit: int, cursor: str | None,

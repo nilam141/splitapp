@@ -103,6 +103,11 @@ export function GroupBalancesScreen({ navigation, route }: Props) {
         );
       })}
 
+      <Button
+        title="Settle up"
+        onPress={() => navigation.navigate('SettleUp', { groupId })}
+      />
+
       {data.transfers.length > 0 ? (
         <View>
           <Text style={styles.section}>

@@ -50,6 +50,10 @@ IN_SCOPE = {
     ("get", "/expenses/{id}/comments"), ("post", "/expenses/{id}/comments"),
     # Slice 4
     ("get", "/groups/{id}/balances"), ("get", "/balances"),
+    # Slice 5 (bookkeeping only; the calls are made by test_settlements.py and test_activity_unread_and_timeline.py)
+    ("get", "/settlements"), ("post", "/settlements"), ("post", "/settlements/settle-all"),
+    ("get", "/settlements/{id}"), ("patch", "/settlements/{id}"), ("delete", "/settlements/{id}"),
+    ("post", "/settlements/{id}/restore"), ("get", "/activity"), ("post", "/activity/read"),
 }
 # In the spec under the Slice 2 heading but not in any S2-B task (no route yet).
 NOT_YET_IMPLEMENTED = {
@@ -439,6 +443,27 @@ def test_departed_member_409s_on_delete_and_restore(call):
     call("DELETE", f"/friends/{d['user']['id']}", 204, token=ta)
     r = call("POST", f"/expenses/{ng['id']}/restore", 409, token=ta)
     assert r.json()["code"] == "EXPENSE_HAS_DEPARTED_MEMBER"
+
+
+def test_settlement_and_activity_endpoints(call):
+    """S5: one contract-validated call per Slice 5 operation (the detailed behaviour is in test_settlements.py and
+    test_activity_unread_and_timeline.py, which run after the coverage test below and so cannot fill COVERED)."""
+    a, b, c, gid = _people(call)  # c is not a member
+    ta, tb, tc = _bearer(a), _bearer(b), _bearer(c)
+    pay = {"group_id": gid, "from_user_id": b["user"]["id"], "to_user_id": a["user"]["id"],
+           "amount": {"amount_minor": 2000, "currency": "INR"}, "settled_on": "2026-11-05"}
+    s = call("POST", "/settlements", 201, token=tb, json_body=pay).json()
+    call("POST", "/settlements", 403, token=tc, json_body=pay)
+    call("GET", "/settlements", 200, token=ta)
+    call("GET", f"/settlements/{s['id']}", 200, token=ta)
+    call("PATCH", f"/settlements/{s['id']}", 200, token=ta, json_body={"version": 1, "note": "cash"})
+    call("DELETE", f"/settlements/{s['id']}", 200, token=ta)
+    call("POST", f"/settlements/{s['id']}/restore", 200, token=ta)
+    call("POST", "/settlements/settle-all", 201, token=ta, json_body={"friend_user_id": b["user"]["id"]})
+    page = call("GET", "/activity", 200, token=ta).json()
+    assert page["unread_count"] >= 1 and page["items"]
+    call("POST", "/activity/read", 204, token=ta)
+    assert call("GET", "/activity", 200, token=ta).json()["unread_count"] == 0
 
 
 # Must stay last: it needs the COVERED set filled by every contract test above it.

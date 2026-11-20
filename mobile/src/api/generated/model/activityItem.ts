@@ -32,6 +32,7 @@ export interface ActivityItem {
   summary?: ActivityItemSummary;
   /** Change in the viewer's balance caused by this event (positive = gets back) */
   my_effect?: BalanceLine[];
+  /** Always false for entries the viewer performed themselves. */
   is_unread?: boolean;
   created_at: string;
 }
