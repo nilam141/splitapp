@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: splitapp
+      POSTGRES_PASSWORD: splitapp
+      POSTGRES_DB: splitapp
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U splitapp -d splitapp"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://splitapp:splitapp@db:5432/splitapp
+      ENV: development  # dev only: the app refuses the default secret when ENV=production
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me-dev-only-change-me}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

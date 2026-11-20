@@ -13,6 +13,7 @@
 5. Work only on the task you were given (task IDs live in `docs/tasks.md`). Stay inside the files you own.
 6. Write tests with the code. Business-rule tests come from `docs/business_rules.md` test vectors.
 7. Append a short handoff note to `docs/progress.md` when you finish.
+8. Mobile UI must follow docs/design_system.md. Use only tokens from mobile/src/theme/. No hard-coded colors, font sizes or spacing in screens.
 
 ## File ownership
 - Architect: `docs/`
