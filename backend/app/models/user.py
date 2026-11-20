@@ -1,9 +1,9 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import CHAR, JSON, DateTime, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.dialects.postgresql import CITEXT, JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Uuid
 
 from app.db import Base
@@ -44,3 +44,26 @@ class User(Base):
     merged_into: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Premium entitlement (S6-B-6): `plan` and `premium_until` on UserMe come from the subscription row.
+    subscription = relationship("Subscription", uselist=False, lazy="joined", viewonly=True)
+
+    def is_premium(self, now: datetime | None = None) -> bool:
+        """Premium = a non-free plan with status active or grace whose period has not ended (null end = no expiry)."""
+        sub = self.subscription
+        if sub is None or sub.plan == "free" or sub.status not in ("active", "grace"):
+            return False
+        end = sub.current_period_end
+        if end is None:
+            return True
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        return end > (now or datetime.now(timezone.utc))
+
+    @property
+    def plan(self) -> str:
+        return "premium" if self.is_premium() else "free"
+
+    @property
+    def premium_until(self) -> datetime | None:
+        return self.subscription.current_period_end if self.is_premium() else None

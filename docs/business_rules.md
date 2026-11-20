@@ -256,6 +256,13 @@ Restoring one of those soft-deleted non-group expenses (or settlements) later is
 ### 10.3 Reminders (decided 2026-11-07, OQ-34)
 `POST /reminders` does **not** check that the recipient owes the sender (in the given scope or at all). Any authenticated sender may remind any permitted recipient. Checks that still apply: the recipient exists and is a friend (derived list) or a co-member of `group_id` if given (else 422 `VALIDATION_ERROR`), the sender is not the recipient, premium gating if adopted (D1), and the rate limit of 1 per (sender, recipient) per 60 seconds (`429 RATE_LIMITED`). The mobile UI still hides the Remind button at a zero balance.
 
+**Channel (ruled 2026-11-20).** One accepted call writes exactly one `notifications` outbox row, `type = 'reminder'`: channel `email` when the recipient has an email address, else `push`. No row if the recipient's `reminder` preference is off, but the call still counts toward the rate limit and still returns 202. This reconciles the contract wording "email" with S6-B-3's "outbox/push row"; email is the primary channel, push is the fallback for phone-only recipients. Sending both is not done (no double reminders).
+
+### 10.4 Push events in scope (ruled 2026-11-20, OQ-47)
+Producers in Slice 6: `expense_added`, `expense_updated` (update and delete), `comment_added`, `payment_recorded`, `reminder`, plus recurring-occurrence reminders. These fan out through `activity.record` to registered recipients, never to the actor, and respect `notification_prefs`.
+
+**Not sent:** `added_to_group`, `removed_from_group`, `group_updated`, `friend_added`, `friend_removed`. Reasons: (1) §10.1a, features F-26 AC5 / F-27 AC1a and openapi `DELETE /groups/{id}` say friendship materialization has no notification; vectors 52, 54 and 55 enforce it by asserting the `notifications` row count is unchanged around leave / remove / delete-group (the count is global, so a `removed_from_group` or `group_updated` row would fail them too); (2) `test_friends.py::test_add_registered_user_201_not_new` asserts no `notifications` row when a registered user is added as a friend (only an unregistered person gets the `invite` email); (3) F-38 AC4 lists the types as preferences but gives no acceptance criterion that requires a producer for them. The keys remain in `notification_prefs` and the activity feed still records these events; only the push/email outbox is skipped. The tests therefore mean what they say literally, not just "no friendship side effect", and no test is to be loosened in Slice 6. Whether to send them later is owner question OQ-47.
+
 ## 11. Auth sessions and rate limits (decided 2026-11-09, OQ-38 and the logout decision)
 
 ### 11.1 Refresh-token revocation reasons

@@ -29,6 +29,7 @@ import { FormField } from '../components/FormField';
 import { Segmented } from '../components/Segmented';
 import { ErrorView, LoadingView } from '../components/StateViews';
 import { outstandingBalances } from '../groups/errors';
+import { useGatedNavigate } from '../premium/gate';
 import { useMoney } from '../money/useMoney';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'GroupSettings'>;
@@ -53,6 +54,7 @@ export function GroupSettingsScreen({ navigation, route }: Props) {
   const { groupId } = route.params;
   const qc = useQueryClient();
   const { user } = useAuth();
+  const gated = useGatedNavigate();
   const { format } = useMoney();
   const query = useGetGroup(groupId);
   const update = useUpdateGroup();
@@ -262,6 +264,16 @@ export function GroupSettingsScreen({ navigation, route }: Props) {
           ) : null}
         </View>
       ))}
+      <Button
+        title="Export to CSV"
+        variant="outlined"
+        onPress={() => gated('ExportSheet', { groupId })}
+      />
+      <Button
+        title="Invite via link"
+        variant="outlined"
+        onPress={() => navigation.navigate('InviteLink', { groupId })}
+      />
       <Button
         title="Add people"
         onPress={() =>

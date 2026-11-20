@@ -21,11 +21,30 @@ services:
       DATABASE_URL: postgresql+psycopg://splitapp:splitapp@db:5432/splitapp
       ENV: development  # dev only: the app refuses the default secret when ENV=production
       JWT_SECRET: ${JWT_SECRET:-dev-only-change-me-dev-only-change-me}
+      STORAGE_DIR: /srv/var/storage  # receipts and exports; shared with the scheduler
     ports:
       - "8000:8000"
+    volumes:
+      - storage:/srv/var/storage
     depends_on:
       db:
         condition: service_healthy
 
+  # Background jobs (S6-B-2, S6-B-3, S6-B-7): recurring occurrences, export purge, notification delivery, every 15 min.
+  scheduler:
+    build: ./backend
+    command: ["python", "-m", "app.scheduler"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://splitapp:splitapp@db:5432/splitapp
+      ENV: development
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me-dev-only-change-me}
+      STORAGE_DIR: /srv/var/storage
+    volumes:
+      - storage:/srv/var/storage
+    depends_on:
+      api:
+        condition: service_started
+
 volumes:
   pgdata:
+  storage:

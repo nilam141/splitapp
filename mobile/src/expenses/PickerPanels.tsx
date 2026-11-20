@@ -7,7 +7,10 @@ import { useListCategories } from '../api/generated/splitapp';
 import type { Category } from '../api/generated/model';
 import { ErrorView, LoadingView } from '../components/StateViews';
 import { Panel } from './Panel';
-import { addDays, validateDate } from './draft';
+import { addDays, validateDate, type RepeatChoice } from './draft';
+import { RepeatSection } from './RepeatSection';
+
+export type RepeatValue = { repeat: RepeatChoice; reminderDays: number | null };
 
 // SCR-25: search + parent headings with child rows.
 export function CategoryPanel({
@@ -120,20 +123,24 @@ function CategoryRow({
   );
 }
 
-// SCR-27: a typed date (no calendar dependency yet) within 2000-01-01 and today + 365 days. Repeat is V2.
+// SCR-27: a typed date (no calendar dependency yet) within 2000-01-01 and today + 365 days. The repeat rule is
+// shown only when `repeat` is passed (adding an expense; a payment has none).
 export function DatePanel({
   date,
   today,
+  repeat,
   onDone,
   onCancel,
 }: {
   date: string;
   today: string;
-  onDone: (date: string) => void;
+  repeat?: RepeatValue;
+  onDone: (date: string, repeat?: RepeatValue) => void;
   onCancel: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [text, setText] = useState(date);
+  const [rule, setRule] = useState<RepeatValue | undefined>(repeat);
   const error = validateDate(text, today);
   const shift = (days: number) => {
     if (!error) {
@@ -144,7 +151,7 @@ export function DatePanel({
     <Panel
       title="Date"
       onCancel={onCancel}
-      onDone={() => onDone(text)}
+      onDone={() => onDone(text, rule)}
       doneDisabled={!!error}
     >
       <TextInput
@@ -164,6 +171,13 @@ export function DatePanel({
         <Button title="Today" onPress={() => setText(today)} />
         <Button title="Next day" onPress={() => shift(1)} />
       </View>
+      {rule ? (
+        <RepeatSection
+          repeat={rule.repeat}
+          reminderDays={rule.reminderDays}
+          onChange={(r, d) => setRule({ repeat: r, reminderDays: d })}
+        />
+      ) : null}
     </Panel>
   );
 }

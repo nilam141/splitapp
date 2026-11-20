@@ -310,13 +310,9 @@ def test_split_value_ranges(client, g):
     assert post(client, a, g["gid"], body([(a, 100)], "exact", [(a, -1), (b, 101)], 100)).status_code == 422
 
 
-def test_recurrence_is_not_implemented_yet(client, g):
+def test_recurrence_null_is_a_plain_expense(client, g):
+    """`recurrence` used to be a 501 until S6-B-1; the real behaviour is tested in test_recurring.py."""
     a, b = g["a"], g["b"]
-    p = {**equal_body(a, [a, b]), "recurrence": {"interval": "monthly", "reminder_days_before": 2}}
-    r = post(client, a, g["gid"], p)
-    assert r.status_code == 501 and r.json()["code"] == "NOT_IMPLEMENTED"
-    assert client.get(f"/groups/{g['gid']}/expenses", headers=h(a)).json()["items"] == []
-    assert client.post("/expenses", json={**p, "group_id": g["gid"]}, headers=h(a)).status_code == 501
     assert post(client, a, g["gid"], {**equal_body(a, [a, b]), "recurrence": None}).status_code == 201
 
 
@@ -480,10 +476,9 @@ def test_list_expenses_paging_and_params(client):
     assert client.get("/expenses").status_code == 401
 
 
-def test_search_is_not_available_yet(client):
+def test_search_needs_at_least_two_characters(client):
+    """Search used to be a 501 until S6-B-6; gating and results are tested in test_premium_search.py."""
     a = user(client, "Asha")
-    r = client.get("/expenses", params={"q": "goa"}, headers=h(a))
-    assert r.status_code == 501 and r.json()["code"] == "NOT_IMPLEMENTED"
     assert client.get("/expenses", params={"q": "g"}, headers=h(a)).status_code == 422
 
 

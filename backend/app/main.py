@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 
 from app.errors import install_error_handlers
-from app.routers import activity, auth, balances, categories, currencies, expenses, friends, groups, health, settlements, users
+from app.routers import activity, auth, balances, categories, currencies, exports, expenses, files, friends, groups, health, recurring, reminders, settlements, users
 
 app = FastAPI(title="SplitApp API", version="0.1.1")
 install_error_handlers(app)
@@ -16,3 +16,7 @@ app.include_router(balances.router)
 app.include_router(expenses.router)
 app.include_router(settlements.router)
 app.include_router(activity.router)
+app.include_router(recurring.router)
+app.include_router(reminders.router)
+app.include_router(exports.router)
+app.include_router(files.router)

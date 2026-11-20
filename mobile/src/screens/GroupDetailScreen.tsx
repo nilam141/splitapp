@@ -1,5 +1,6 @@
 import React, { useLayoutEffect, useMemo } from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
+import { cursorOf } from '../api/helpers';
 import { Theme, useThemedStyles } from '../theme';
 import { Text } from '../components/Text';
 import { Button } from '../components/Button';
@@ -74,7 +75,10 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       'infinite',
     ],
     queryFn: ({ pageParam }) =>
-      listGroupTimeline(groupId, { limit: PAGE_SIZE, cursor: pageParam }),
+      listGroupTimeline(groupId, {
+        limit: PAGE_SIZE,
+        cursor: cursorOf(pageParam),
+      }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: last =>
       last.status === 200 ? (last.data.next_cursor ?? undefined) : undefined,

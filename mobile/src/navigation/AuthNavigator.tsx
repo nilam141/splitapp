@@ -4,6 +4,7 @@ import type { AuthStackParamList } from './types';
 import { WelcomeScreen } from '../screens/WelcomeScreen';
 import { SignUpScreen } from '../screens/SignUpScreen';
 import { LogInScreen } from '../screens/LogInScreen';
+import { PasswordResetScreen } from '../screens/PasswordResetScreen';
 import { SessionExpiredScreen } from '../screens/SessionExpiredScreen';
 import { useAuth } from '../auth/AuthContext';
 
@@ -35,6 +36,11 @@ export function AuthNavigator() {
         name="LogIn"
         component={LogInScreen}
         options={{ title: 'Log in' }}
+      />
+      <Stack.Screen
+        name="PasswordReset"
+        component={PasswordResetScreen}
+        options={{ title: 'New password' }}
       />
     </Stack.Navigator>
   );

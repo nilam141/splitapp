@@ -33,6 +33,7 @@ import {
   invalidateExpenses,
   invalidateFriends,
   invalidateGroups,
+  invalidateRecurring,
   newIdempotencyKey,
 } from '../api/helpers';
 import { useAuth } from '../auth/AuthContext';
@@ -40,6 +41,9 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { CurrencyPicker } from '../components/CurrencyPicker';
 import { ErrorView, LoadingView } from '../components/StateViews';
 import { showToast } from '../components/toast';
+import { showSnackbar } from '../components/snackbar';
+import { isNetworkError } from '../offline/connectivity';
+import { enqueueWrite } from '../offline/queue';
 import {
   buildRequest,
   canonicalPeople,
@@ -55,6 +59,7 @@ import {
 } from '../expenses/draft';
 import { PayersPanel } from '../expenses/PayersPanel';
 import { CategoryPanel, DatePanel, NotePanel } from '../expenses/PickerPanels';
+import { REPEAT_ADVERB } from '../expenses/repeatLabels';
 import { SplitPanel } from '../expenses/SplitPanel';
 import { useNameOf } from '../expenses/useNames';
 import { DEPARTED_MEMBER_MESSAGE } from '../expenses/messages';
@@ -302,6 +307,7 @@ function ExpenseForm({
       invalidateExpenses(qc),
       invalidateGroups(qc),
       invalidateFriends(qc),
+      invalidateRecurring(qc),
     ]);
     leaving.current = true;
     navigation.goBack();
@@ -348,8 +354,21 @@ function ExpenseForm({
       }
       idemKey.current = newIdempotencyKey();
       handleFailure(res);
-    } catch {
-      setBanner(OFFLINE); // no response: the same key is kept for the retry
+    } catch (e) {
+      if (!expense && isNetworkError(e)) {
+        // No connection: keep the expense on the device and replay it with the same Idempotency-Key (F-53).
+        await enqueueWrite(
+          groupId
+            ? { kind: 'group_expense', groupId, body: built.body }
+            : { kind: 'expense', body: { ...built.body, group_id: null } },
+          idemKey.current,
+        );
+        showSnackbar("Saved on this device. It will sync when you're online.");
+        leaving.current = true;
+        navigation.goBack();
+      } else {
+        setBanner(OFFLINE);
+      }
     } finally {
       setSaving(false);
     }
@@ -371,6 +390,10 @@ function ExpenseForm({
       setBanner("You can't change this expense.");
     } else if (res.status === 404) {
       setBanner('This expense or group no longer exists.');
+    } else if (res.status === 501) {
+      setBanner(
+        'Repeating expenses are not available yet. Set Repeat to Never.',
+      );
     } else if (res.status === 422) {
       setBanner(err?.message ?? 'The server rejected these values.');
     } else {
@@ -430,8 +453,13 @@ function ExpenseForm({
         date={draft.date}
         today={today}
         onCancel={close}
-        onDone={d => {
-          set({ date: d });
+        repeat={
+          expense
+            ? undefined
+            : { repeat: draft.repeat, reminderDays: draft.reminderDays }
+        }
+        onDone={(d, r) => {
+          set({ date: d, ...(r ?? {}) });
           close();
         }}
       />
@@ -560,7 +588,12 @@ function ExpenseForm({
         onPress={() => setPanel('date')}
         style={styles.chip}
       >
-        <Text>Date: {draft.date}</Text>
+        <Text>
+          Date: {draft.date}
+          {draft.repeat !== 'never'
+            ? ` - repeats ${REPEAT_ADVERB[draft.repeat]}`
+            : ''}
+        </Text>
       </Pressable>
       {errors.date ? (
         <Text accessibilityRole="alert" style={styles.error}>

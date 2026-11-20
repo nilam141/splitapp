@@ -327,3 +327,19 @@ class OverallBalances(BaseModel):
     you_are_owed: list[BalanceLine]
     you_owe: list[BalanceLine]
     by_friend: list[OverallFriend]
+
+
+class InviteLink(BaseModel):
+    token: str
+    url: str
+
+
+class JoinGroupRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=64)
+    claim_placeholder_user_id: uuid.UUID | None = None
+
+
+class ReminderCreate(BaseModel):
+    to_user_id: uuid.UUID
+    group_id: uuid.UUID | None = None
+    message: str | None = Field(default=None, max_length=1000)

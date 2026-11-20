@@ -54,11 +54,15 @@ IN_SCOPE = {
     ("get", "/settlements"), ("post", "/settlements"), ("post", "/settlements/settle-all"),
     ("get", "/settlements/{id}"), ("patch", "/settlements/{id}"), ("delete", "/settlements/{id}"),
     ("post", "/settlements/{id}/restore"), ("get", "/activity"), ("post", "/activity/read"),
+    # Slice 6 (S6-B-1..S6-B-7); the Blocked ones (D-C) are not in the app and not listed
+    ("get", "/recurring-expenses"), ("post", "/recurring-expenses"), ("patch", "/recurring-expenses/{id}"),
+    ("delete", "/recurring-expenses/{id}"), ("post", "/reminders"), ("post", "/exports"), ("get", "/exports/{id}"),
+    ("get", "/groups/{id}/invite-link"), ("post", "/groups/{id}/invite-link"), ("post", "/groups/join"),
+    ("post", "/expenses/{id}/receipt"), ("delete", "/expenses/{id}/receipt"),
 }
 # In the spec under the Slice 2 heading but not in any S2-B task (no route yet).
 NOT_YET_IMPLEMENTED = {
-    ("post", "/groups/join"), ("post", "/groups/{id}/restore"), ("get", "/groups/{id}/invite-link"),
-    ("post", "/groups/{id}/invite-link"),
+    ("post", "/groups/{id}/restore"),
 }
 
 COVERED: set[tuple[str, str]] = set()
@@ -87,11 +91,11 @@ class Caller:
     def __init__(self, client):
         self.client = client
 
-    def __call__(self, method, path, expect, token=None, json_body=None, headers=None, params=None):
+    def __call__(self, method, path, expect, token=None, json_body=None, headers=None, params=None, files=None):
         h = dict(headers or {})
         if token:
             h["Authorization"] = f"Bearer {token}"
-        r = self.client.request(method, path, json=json_body, headers=h, params=params)
+        r = self.client.request(method, path, json=json_body, headers=h, params=params, files=files)
         assert r.status_code == expect, f"{method} {path}: wanted {expect}, got {r.status_code} {r.text}"
         body = r.content or b""
         ctype = r.headers.get("content-type", "")
@@ -106,7 +110,7 @@ class Caller:
         mresp = MockResponse(body, status_code=r.status_code, headers=dict(r.headers),
                              content_type=ctype.split(";")[0] if body else "")
         try:
-            if expect != 422:  # 422 cases send deliberately invalid bodies
+            if expect != 422 and files is None:  # 422 cases send deliberately invalid bodies; multipart is not modelled
                 SPEC.validate_request(mreq)
         except SecurityValidationError:
             # Only the deliberate no-token calls may lack credentials; the API must answer those with 401.
@@ -277,9 +281,9 @@ def test_shipped_guard_negative_control():
     probe2 = FastAPI()
     probe2.include_router(APIRouter(prefix="/groups"))
     r = APIRouter()
-    r.add_api_route("/groups/join", lambda: {}, methods=["POST"])
+    r.add_api_route("/groups/{gid}/restore", lambda gid: {}, methods=["POST"])
     probe2.include_router(r)
-    assert {(m, _norm(p)) for m, p in NOT_YET_IMPLEMENTED} & shipped_operations(probe2) == {("post", "/groups/join")}
+    assert {(m, _norm(p)) for m, p in NOT_YET_IMPLEMENTED} & shipped_operations(probe2) == {("post", "/groups/{}/restore")}
 
 
 def test_validator_rejects_a_response_that_breaks_the_contract(client):
@@ -464,6 +468,132 @@ def test_settlement_and_activity_endpoints(call):
     assert page["unread_count"] >= 1 and page["items"]
     call("POST", "/activity/read", 204, token=ta)
     assert call("GET", "/activity", 200, token=ta).json()["unread_count"] == 0
+
+
+def test_slice6_endpoints(call, db_session):
+    """S6: one contract-validated call per Slice 6 operation (behaviour is in the test_recurring / test_notifications /
+    test_invites / test_receipts / test_premium_search / test_exports files)."""
+    import uuid as _uuid
+    from datetime import datetime, timedelta, timezone
+
+    from app import services_premium
+    a, b, c, gid = _people(call)
+    ta, tb, tc = _bearer(a), _bearer(b), _bearer(c)
+    services_premium.grant(db_session, _uuid.UUID(a["user"]["id"]), period_end=datetime.now(timezone.utc) + timedelta(days=30))
+    db_session.commit()
+    # Only statuses the spec declares are called here; the 403/404 behaviour of operations whose spec lists none
+    # (PATCH/DELETE recurring, invite-link) is covered in test_recurring.py and test_invites.py.
+    # recurring
+    rent = call("POST", f"/groups/{gid}/expenses", 201, token=ta, json_body={
+        **_eq(a, [a, b], 3000000), "expense_date": "2026-01-31", "recurrence": {"interval": "monthly", "reminder_days_before": 2}}).json()
+    rules = call("GET", "/recurring-expenses", 200, token=ta).json()["items"]
+    assert len(rules) == 1 and rules[0]["next_occurrence_date"] == "2026-02-28" and rent["recurring_rule_id"] == rules[0]["id"]
+    call("GET", "/recurring-expenses", 200, token=tb, params={"group_id": gid})
+    other = call("POST", f"/groups/{gid}/expenses", 201, token=ta, json_body=_eq(a, [a, b], 900)).json()
+    created = call("POST", "/recurring-expenses", 201, token=ta, json_body={"template_expense_id": other["id"], "interval": "weekly"}).json()
+    call("POST", "/recurring-expenses", 409, token=ta, json_body={"template_expense_id": other["id"], "interval": "weekly"})
+    call("POST", "/recurring-expenses", 422, token=ta, json_body={"template_expense_id": other["id"], "interval": "daily"})
+    call("PATCH", f"/recurring-expenses/{rules[0]['id']}", 200, token=tb, json_body={"reminder_days_before": 1})
+    call("PATCH", f"/recurring-expenses/{created['id']}", 200, token=ta, json_body={"active": False})
+    call("DELETE", f"/recurring-expenses/{created['id']}", 204, token=ta)
+    # reminders
+    call("POST", "/reminders", 202, token=ta, json_body={"to_user_id": b["user"]["id"]})
+    call("POST", "/reminders", 429, token=ta, json_body={"to_user_id": b["user"]["id"]})
+    call("POST", "/reminders", 422, token=ta, json_body={"to_user_id": c["user"]["id"]})
+    # invite links and joining
+    inv = call("GET", f"/groups/{gid}/invite-link", 200, token=ta).json()
+    new = call("POST", f"/groups/{gid}/invite-link", 201, token=tb).json()
+    call("POST", "/groups/join", 410, token=tc, json_body={"token": inv["token"]})
+    call("POST", "/groups/join", 200, token=tc, json_body={"token": new["token"], "claim_placeholder_user_id": None})
+    # receipts and exports (premium)
+    jpeg = b"\xff\xd8\xff\xe0" + b"x" * 64
+    call("POST", f"/expenses/{other['id']}/receipt", 201, token=ta, files={"file": ("r.jpg", jpeg, "image/jpeg")})
+    call("POST", f"/expenses/{other['id']}/receipt", 402, token=tb, files={"file": ("r.jpg", jpeg, "image/jpeg")})
+    call("POST", f"/expenses/{other['id']}/receipt", 422, token=ta, files={"file": ("r.txt", b"hi", "text/plain")})
+    call("POST", f"/expenses/{other['id']}/receipt", 413, token=ta, files={"file": ("big.jpg", jpeg + b"0" * (10 * 1024 * 1024), "image/jpeg")})
+    call("DELETE", f"/expenses/{other['id']}/receipt", 204, token=ta)
+    ex = call("POST", "/exports", 202, token=ta, json_body={"scope": "group", "group_id": gid}).json()
+    assert ex["status"] == "pending"
+    done = call("GET", f"/exports/{ex['id']}", 200, token=ta).json()
+    assert done["status"] == "ready" and done["download_url"] and done["expires_at"]
+    call("POST", "/exports", 402, token=tb, json_body={"scope": "group", "group_id": gid})
+    call("GET", f"/exports/{_uuid.uuid4()}", 404, token=ta)
+    call("GET", "/expenses", 200, token=ta, params={"q": "dinner"})
+    call("GET", "/expenses", 402, token=tb, params={"q": "dinner"})
+    call("GET", "/users/me", 200, token=ta)
+
+
+def test_slice6_declared_error_statuses(call, db_session):
+    """S6-Q-1 follow-up (architect ruling in progress.md, 2026-11-20): the error statuses that openapi.yaml now declares
+    are produced by the server and validate against the declared response schemas: join 422 (VALIDATION_ERROR and
+    GROUP_TOO_LARGE), invite-link 403/404/409, recurring 403/404/422/409, receipt 403/404/409, exports 404/422."""
+    import uuid as _uuid
+    from datetime import datetime, timedelta, timezone
+
+    from app import services_premium
+    from app.models import GroupMember, User
+    a, b, c, gid = _people(call)
+    ta, tb, tc = _bearer(a), _bearer(b), _bearer(c)  # c is a stranger to the group
+    services_premium.grant(db_session, _uuid.UUID(a["user"]["id"]), period_end=datetime.now(timezone.utc) + timedelta(days=30))
+    db_session.commit()
+    ghost = str(_uuid.uuid4())
+
+    # join 422 VALIDATION_ERROR: a claim that is not a placeholder of this group
+    token = call("GET", f"/groups/{gid}/invite-link", 200, token=ta).json()["token"]
+    r = call("POST", "/groups/join", 422, token=tc, json_body={"token": token, "claim_placeholder_user_id": ghost})
+    assert r.json()["code"] == "VALIDATION_ERROR"
+    # join 422 GROUP_TOO_LARGE: 2 members + 198 placeholders = the 200 cap
+    for i in range(198):
+        p = User(id=_uuid.uuid4(), name=f"P{i}", is_registered=False, default_currency="INR", notification_prefs={},
+                 friend_code=_uuid.uuid4().hex[:12])
+        db_session.add(p)
+        db_session.flush()
+        db_session.add(GroupMember(group_id=_uuid.UUID(gid), user_id=p.id, sort_index=10 + i))
+    db_session.commit()
+    r = call("POST", "/groups/join", 422, token=tc, json_body={"token": token})
+    assert r.json()["code"] == "GROUP_TOO_LARGE"
+
+    # invite-link 403 (not a member), 404 (unknown group)
+    for method in ("GET", "POST"):
+        assert call(method, f"/groups/{gid}/invite-link", 403, token=tc).json()["code"] == "FORBIDDEN"
+        call(method, f"/groups/{ghost}/invite-link", 404, token=ta)
+
+    # recurring: 403 stranger, 404 unknown, 422 bad body, 409 twice / deleted template
+    exp = call("POST", f"/groups/{gid}/expenses", 201, token=ta, json_body=_eq(a, [a, b], 1200)).json()
+    rule = call("POST", "/recurring-expenses", 201, token=ta, json_body={"template_expense_id": exp["id"], "interval": "monthly"}).json()
+    call("POST", "/recurring-expenses", 403, token=tc, json_body={"template_expense_id": exp["id"], "interval": "monthly"})
+    call("POST", "/recurring-expenses", 404, token=ta, json_body={"template_expense_id": ghost, "interval": "monthly"})
+    call("POST", "/recurring-expenses", 422, token=ta, json_body={"template_expense_id": exp["id"], "interval": "hourly"})
+    r = call("POST", "/recurring-expenses", 409, token=ta, json_body={"template_expense_id": exp["id"], "interval": "monthly"})
+    assert r.json()["code"] == "VALIDATION_ERROR"  # architect ruling: existing enum value with a 409 status
+    call("PATCH", f"/recurring-expenses/{rule['id']}", 403, token=tc, json_body={"active": False})
+    call("PATCH", f"/recurring-expenses/{ghost}", 404, token=ta, json_body={"active": False})
+    call("PATCH", f"/recurring-expenses/{rule['id']}", 422, token=ta, json_body={"interval": "hourly"})
+    call("DELETE", f"/recurring-expenses/{rule['id']}", 403, token=tc)
+    call("DELETE", f"/recurring-expenses/{ghost}", 404, token=ta)
+    gone = call("POST", f"/groups/{gid}/expenses", 201, token=ta, json_body=_eq(a, [a, b], 500)).json()
+
+    # receipts: 403 stranger delete, 404 unknown (upload and delete), 409 on a deleted expense
+    jpeg = b"\xff\xd8\xff\xe0" + b"x" * 64
+    call("DELETE", f"/expenses/{exp['id']}/receipt", 403, token=tc)
+    call("DELETE", f"/expenses/{ghost}/receipt", 404, token=ta)
+    call("POST", f"/expenses/{ghost}/receipt", 404, token=ta, files={"file": ("r.jpg", jpeg, "image/jpeg")})
+    call("DELETE", f"/expenses/{gone['id']}", 200, token=ta)
+    r = call("POST", f"/expenses/{gone['id']}/receipt", 409, token=ta, files={"file": ("r.jpg", jpeg, "image/jpeg")})
+    assert r.json()["code"] == "ALREADY_DELETED"
+    r = call("POST", "/recurring-expenses", 409, token=ta, json_body={"template_expense_id": gone["id"], "interval": "monthly"})
+    assert r.json()["code"] == "ALREADY_DELETED"
+
+    # exports: 404 unknown group, 422 missing group_id / bad scope
+    call("POST", "/exports", 404, token=ta, json_body={"scope": "group", "group_id": ghost})
+    call("POST", "/exports", 422, token=ta, json_body={"scope": "group"})
+    call("POST", "/exports", 422, token=ta, json_body={"scope": "team", "group_id": gid})
+
+    # invite-link 409 on a deleted group (the group has no expenses left that matter: delete the live ones first)
+    g2 = call("POST", "/groups", 201, token=ta, json_body={"name": "Temp"}).json()["id"]
+    call("DELETE", f"/groups/{g2}", 204, token=ta)
+    for method in ("GET", "POST"):
+        assert call(method, f"/groups/{g2}/invite-link", 409, token=ta).json()["code"] == "ALREADY_DELETED"
 
 
 # Must stay last: it needs the COVERED set filled by every contract test above it.

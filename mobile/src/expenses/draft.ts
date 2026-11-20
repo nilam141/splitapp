@@ -3,6 +3,7 @@
 import type {
   Expense,
   ExpenseCreate,
+  RecurrenceInput,
   SplitEntryInput,
 } from '../api/generated/model';
 import { formatMinorAmount } from '../money/format';
@@ -28,6 +29,19 @@ export type PayersDraft =
   | { mode: 'single'; payerId: string }
   | { mode: 'multiple'; amounts: Record<string, string> };
 
+/** SCR-27 repeat choice. 'never' sends no `recurrence`. */
+export type RepeatChoice = 'never' | RecurrenceInput['interval'];
+
+/** SCR-27 reminder choices: null = off, 0 = on the day, then days before (contract range 0..7). */
+export const REMINDER_CHOICES: readonly (number | null)[] = [
+  null,
+  0,
+  1,
+  2,
+  3,
+  7,
+];
+
 export type ExpenseDraft = {
   description: string;
   amountText: string;
@@ -35,6 +49,10 @@ export type ExpenseDraft = {
   categoryId: number | undefined;
   date: string; // YYYY-MM-DD
   notes: string;
+  /** Repeat rule, only used when creating (stopping a rule is done on SCR-29). */
+  repeat: RepeatChoice;
+  /** Days before the next occurrence to remind; only sent while repeating. */
+  reminderDays: number | null;
   payers: PayersDraft;
   split: SplitDraft;
 };
@@ -68,6 +86,8 @@ export function initialDraft(
     categoryId: undefined,
     date: today,
     notes: '',
+    repeat: 'never',
+    reminderDays: null,
     payers: { mode: 'single', payerId: me },
     split: { type: 'equal', included: people.map(p => p.id), values: {} },
   };
@@ -525,6 +545,14 @@ export function buildRequest(
     ...(draft.categoryId === undefined
       ? {}
       : { category_id: draft.categoryId }),
+    ...(draft.repeat === 'never'
+      ? {}
+      : {
+          recurrence: {
+            interval: draft.repeat,
+            reminder_days_before: draft.reminderDays,
+          },
+        }),
   };
   return { ok: true, body, total };
 }
@@ -558,6 +586,8 @@ export function draftFromExpense(e: Expense, exponent: number): ExpenseDraft {
     categoryId: e.category_id,
     date: e.expense_date,
     notes: e.notes ?? '',
+    repeat: 'never',
+    reminderDays: null,
     payers: single
       ? { mode: 'single', payerId: e.payers[0].user_id }
       : { mode: 'multiple', amounts },

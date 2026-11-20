@@ -15,6 +15,14 @@ import {
 import type { AuthResponse, UserMe } from '../api/generated/model';
 import { clearTokens, loadTokens, saveTokens } from './tokenStorage';
 import { onSessionExpired } from './sessionEvents';
+import {
+  clearOfflineData,
+  loadCachedUser,
+  restoreQueryCache,
+  saveCachedUser,
+  startCachePersistence,
+} from '../offline/cache';
+import { clearQueue } from '../offline/queue';
 
 // 'loading' = SCR-01 launch router deciding; 'error' = could not reach the
 // server while restoring (MVP shows Retry instead of stale data).
@@ -56,6 +64,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         return;
       }
+      // Could not reach the server: open the app from the saved profile and cache if there is one (F-53),
+      // otherwise offer Retry.
+      const openOffline = async () => {
+        const cached = await loadCachedUser();
+        if (cancelled) {
+          return;
+        }
+        if (cached) {
+          await restoreQueryCache(queryClient, cached.id);
+          if (!cancelled) {
+            setUser(cached);
+            setStatus('signedIn');
+          }
+        } else {
+          setStatus('error');
+        }
+      };
       try {
         // customFetch refreshes the access token transparently on 401.
         const res = await getCurrentUser();
@@ -63,27 +88,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         if (res.status === 200) {
+          await restoreQueryCache(queryClient, res.data.id);
+          if (cancelled) {
+            return;
+          }
           setUser(res.data);
           setStatus('signedIn');
         } else if (res.status === 401) {
           // Signed out only if the HTTP layer cleared the tokens (refresh was
           // rejected). If they are still there the refresh failed for another
-          // reason (network), so offer Retry instead.
-          setStatus((await loadTokens()) ? 'error' : 'signedOut');
+          // reason (network), so work offline or offer Retry.
+          if (await loadTokens()) {
+            await openOffline();
+          } else {
+            setStatus('signedOut');
+          }
         } else {
           // 404, 5xx, anything else: keep the tokens and offer Retry.
           setStatus('error');
         }
       } catch {
         if (!cancelled) {
-          setStatus('error');
+          await openOffline();
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [attempt]);
+  }, [attempt, queryClient]);
 
   // Refresh token rejected at any time -> back to the welcome screen.
   useEffect(
@@ -92,6 +125,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // SCR-44 only when a live session ends; on launch (no user yet) SCR-01 goes to SCR-02.
         setExpiredEmail(userRef.current?.email ?? null);
         queryClient.clear();
+        clearOfflineData();
+        clearQueue();
         setUser(null);
         setStatus('signedOut');
       }),
@@ -119,10 +154,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     await clearTokens();
     queryClient.clear();
+    await Promise.all([clearOfflineData(), clearQueue()]);
     setUser(null);
     setExpiredEmail(null);
     setStatus('signedOut');
   }, [queryClient]);
+
+  // Keep the profile and the query cache on the device while signed in (offline start, F-53).
+  const userId = user?.id;
+  useEffect(() => {
+    if (status !== 'signedIn' || !userId) {
+      return;
+    }
+    return startCachePersistence(queryClient, userId);
+  }, [status, userId, queryClient]);
+  useEffect(() => {
+    if (status === 'signedIn' && user) {
+      saveCachedUser(user).catch(() => undefined);
+    }
+  }, [status, user]);
 
   const retryRestore = useCallback(() => setAttempt(a => a + 1), []);
 

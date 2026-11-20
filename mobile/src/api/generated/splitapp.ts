@@ -2343,15 +2343,27 @@ export type joinGroupResponse200 = {
   status: 200;
 };
 
+export type joinGroupResponse401 = {
+  data: UnauthorizedResponse;
+  status: 401;
+};
+
 export type joinGroupResponse410 = {
   data: GoneResponse;
   status: 410;
 };
 
+export type joinGroupResponse422 = {
+  data: Error;
+  status: 422;
+};
+
 export type joinGroupResponseSuccess = joinGroupResponse200 & {
   headers: Headers;
 };
-export type joinGroupResponseError = joinGroupResponse410 & {
+export type joinGroupResponseError = (
+  joinGroupResponse401 | joinGroupResponse410 | joinGroupResponse422
+) & {
   headers: Headers;
 };
 
@@ -2404,7 +2416,7 @@ export const joinGroup = async (
 export const getJoinGroupMutationKey = () => ['joinGroup'] as const;
 
 export const getJoinGroupMutationOptions = <
-  TError = GoneResponse,
+  TError = UnauthorizedResponse | GoneResponse | Error,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -2445,13 +2457,17 @@ export type JoinGroupMutationResult = NonNullable<
   Awaited<ReturnType<typeof joinGroup>>
 >;
 export type JoinGroupMutationBody = JoinGroupRequest;
-export type JoinGroupMutationError = GoneResponse;
+export type JoinGroupMutationError =
+  UnauthorizedResponse | GoneResponse | Error;
 export type JoinGroupMutationVariables = { data: JoinGroupRequest };
 
 /**
  * @summary Join a group with an invite token (V2)
  */
-export const useJoinGroup = <TError = GoneResponse, TContext = unknown>(
+export const useJoinGroup = <
+  TError = UnauthorizedResponse | GoneResponse | Error,
+  TContext = unknown,
+>(
   options?: {
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof joinGroup>>,
@@ -3325,11 +3341,41 @@ export type getGroupInviteLinkResponse200 = {
   status: 200;
 };
 
+export type getGroupInviteLinkResponse401 = {
+  data: UnauthorizedResponse;
+  status: 401;
+};
+
+export type getGroupInviteLinkResponse403 = {
+  data: ForbiddenResponse;
+  status: 403;
+};
+
+export type getGroupInviteLinkResponse404 = {
+  data: NotFoundResponse;
+  status: 404;
+};
+
+export type getGroupInviteLinkResponse409 = {
+  data: Error;
+  status: 409;
+};
+
 export type getGroupInviteLinkResponseSuccess =
   getGroupInviteLinkResponse200 & {
     headers: Headers;
   };
-export type getGroupInviteLinkResponse = getGroupInviteLinkResponseSuccess;
+export type getGroupInviteLinkResponseError = (
+  | getGroupInviteLinkResponse401
+  | getGroupInviteLinkResponse403
+  | getGroupInviteLinkResponse404
+  | getGroupInviteLinkResponse409
+) & {
+  headers: Headers;
+};
+
+export type getGroupInviteLinkResponse =
+  getGroupInviteLinkResponseSuccess | getGroupInviteLinkResponseError;
 
 export const getGetGroupInviteLinkUrl = (id: string) => {
   return `/groups/${id}/invite-link`;
@@ -3354,7 +3400,7 @@ export const getGetGroupInviteLinkQueryKey = (id: string) => {
 
 export const getGetGroupInviteLinkQueryOptions = <
   TData = Awaited<ReturnType<typeof getGroupInviteLink>>,
-  TError = unknown,
+  TError = UnauthorizedResponse | ForbiddenResponse | NotFoundResponse | Error,
 >(
   id: string,
   options?: {
@@ -3391,11 +3437,12 @@ export const getGetGroupInviteLinkQueryOptions = <
 export type GetGroupInviteLinkQueryResult = NonNullable<
   Awaited<ReturnType<typeof getGroupInviteLink>>
 >;
-export type GetGroupInviteLinkQueryError = unknown;
+export type GetGroupInviteLinkQueryError =
+  UnauthorizedResponse | ForbiddenResponse | NotFoundResponse | Error;
 
 export function useGetGroupInviteLink<
   TData = Awaited<ReturnType<typeof getGroupInviteLink>>,
-  TError = unknown,
+  TError = UnauthorizedResponse | ForbiddenResponse | NotFoundResponse | Error,
 >(
   id: string,
   options: {
@@ -3422,7 +3469,7 @@ export function useGetGroupInviteLink<
 };
 export function useGetGroupInviteLink<
   TData = Awaited<ReturnType<typeof getGroupInviteLink>>,
-  TError = unknown,
+  TError = UnauthorizedResponse | ForbiddenResponse | NotFoundResponse | Error,
 >(
   id: string,
   options?: {
@@ -3449,7 +3496,7 @@ export function useGetGroupInviteLink<
 };
 export function useGetGroupInviteLink<
   TData = Awaited<ReturnType<typeof getGroupInviteLink>>,
-  TError = unknown,
+  TError = UnauthorizedResponse | ForbiddenResponse | NotFoundResponse | Error,
 >(
   id: string,
   options?: {
@@ -3472,7 +3519,7 @@ export function useGetGroupInviteLink<
 
 export function useGetGroupInviteLink<
   TData = Awaited<ReturnType<typeof getGroupInviteLink>>,
-  TError = unknown,
+  TError = UnauthorizedResponse | ForbiddenResponse | NotFoundResponse | Error,
 >(
   id: string,
   options?: {
@@ -3504,11 +3551,41 @@ export type resetGroupInviteLinkResponse201 = {
   status: 201;
 };
 
+export type resetGroupInviteLinkResponse401 = {
+  data: UnauthorizedResponse;
+  status: 401;
+};
+
+export type resetGroupInviteLinkResponse403 = {
+  data: ForbiddenResponse;
+  status: 403;
+};
+
+export type resetGroupInviteLinkResponse404 = {
+  data: NotFoundResponse;
+  status: 404;
+};
+
+export type resetGroupInviteLinkResponse409 = {
+  data: Error;
+  status: 409;
+};
+
 export type resetGroupInviteLinkResponseSuccess =
   resetGroupInviteLinkResponse201 & {
     headers: Headers;
   };
-export type resetGroupInviteLinkResponse = resetGroupInviteLinkResponseSuccess;
+export type resetGroupInviteLinkResponseError = (
+  | resetGroupInviteLinkResponse401
+  | resetGroupInviteLinkResponse403
+  | resetGroupInviteLinkResponse404
+  | resetGroupInviteLinkResponse409
+) & {
+  headers: Headers;
+};
+
+export type resetGroupInviteLinkResponse =
+  resetGroupInviteLinkResponseSuccess | resetGroupInviteLinkResponseError;
 
 export const getResetGroupInviteLinkUrl = (id: string) => {
   return `/groups/${id}/invite-link`;
@@ -3534,7 +3611,7 @@ export const getResetGroupInviteLinkMutationKey = () =>
   ['resetGroupInviteLink'] as const;
 
 export const getResetGroupInviteLinkMutationOptions = <
-  TError = unknown,
+  TError = UnauthorizedResponse | ForbiddenResponse | NotFoundResponse | Error,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -3575,13 +3652,17 @@ export type ResetGroupInviteLinkMutationResult = NonNullable<
   Awaited<ReturnType<typeof resetGroupInviteLink>>
 >;
 
-export type ResetGroupInviteLinkMutationError = unknown;
+export type ResetGroupInviteLinkMutationError =
+  UnauthorizedResponse | ForbiddenResponse | NotFoundResponse | Error;
 export type ResetGroupInviteLinkMutationVariables = { id: string };
 
 /**
  * @summary Reset the invite link; the old token stops working (V2)
  */
-export const useResetGroupInviteLink = <TError = unknown, TContext = unknown>(
+export const useResetGroupInviteLink = <
+  TError = UnauthorizedResponse | ForbiddenResponse | NotFoundResponse | Error,
+  TContext = unknown,
+>(
   options?: {
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof resetGroupInviteLink>>,
@@ -5109,6 +5190,11 @@ export type uploadExpenseReceiptResponse201 = {
   status: 201;
 };
 
+export type uploadExpenseReceiptResponse401 = {
+  data: UnauthorizedResponse;
+  status: 401;
+};
+
 export type uploadExpenseReceiptResponse402 = {
   data: PaymentRequiredResponse;
   status: 402;
@@ -5117,6 +5203,16 @@ export type uploadExpenseReceiptResponse402 = {
 export type uploadExpenseReceiptResponse403 = {
   data: ForbiddenResponse;
   status: 403;
+};
+
+export type uploadExpenseReceiptResponse404 = {
+  data: NotFoundResponse;
+  status: 404;
+};
+
+export type uploadExpenseReceiptResponse409 = {
+  data: Error;
+  status: 409;
 };
 
 export type uploadExpenseReceiptResponse413 = {
@@ -5134,8 +5230,11 @@ export type uploadExpenseReceiptResponseSuccess =
     headers: Headers;
   };
 export type uploadExpenseReceiptResponseError = (
+  | uploadExpenseReceiptResponse401
   | uploadExpenseReceiptResponse402
   | uploadExpenseReceiptResponse403
+  | uploadExpenseReceiptResponse404
+  | uploadExpenseReceiptResponse409
   | uploadExpenseReceiptResponse413
   | uploadExpenseReceiptResponse422
 ) & {
@@ -5175,7 +5274,12 @@ export const getUploadExpenseReceiptMutationKey = () =>
 
 export const getUploadExpenseReceiptMutationOptions = <
   TError =
-    PaymentRequiredResponse | ForbiddenResponse | Error | UnprocessableResponse,
+    | UnauthorizedResponse
+    | PaymentRequiredResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | Error
+    | UnprocessableResponse,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -5217,7 +5321,12 @@ export type UploadExpenseReceiptMutationResult = NonNullable<
 >;
 export type UploadExpenseReceiptMutationBody = UploadExpenseReceiptBody;
 export type UploadExpenseReceiptMutationError =
-  PaymentRequiredResponse | ForbiddenResponse | Error | UnprocessableResponse;
+  | UnauthorizedResponse
+  | PaymentRequiredResponse
+  | ForbiddenResponse
+  | NotFoundResponse
+  | Error
+  | UnprocessableResponse;
 export type UploadExpenseReceiptMutationVariables = {
   id: string;
   data: UploadExpenseReceiptBody;
@@ -5228,7 +5337,12 @@ export type UploadExpenseReceiptMutationVariables = {
  */
 export const useUploadExpenseReceipt = <
   TError =
-    PaymentRequiredResponse | ForbiddenResponse | Error | UnprocessableResponse,
+    | UnauthorizedResponse
+    | PaymentRequiredResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | Error
+    | UnprocessableResponse,
   TContext = unknown,
 >(
   options?: {
@@ -5258,17 +5372,42 @@ export type deleteExpenseReceiptResponse204 = {
   status: 204;
 };
 
+export type deleteExpenseReceiptResponse401 = {
+  data: UnauthorizedResponse;
+  status: 401;
+};
+
+export type deleteExpenseReceiptResponse403 = {
+  data: ForbiddenResponse;
+  status: 403;
+};
+
+export type deleteExpenseReceiptResponse404 = {
+  data: NotFoundResponse;
+  status: 404;
+};
+
 export type deleteExpenseReceiptResponseSuccess =
   deleteExpenseReceiptResponse204 & {
     headers: Headers;
   };
-export type deleteExpenseReceiptResponse = deleteExpenseReceiptResponseSuccess;
+export type deleteExpenseReceiptResponseError = (
+  | deleteExpenseReceiptResponse401
+  | deleteExpenseReceiptResponse403
+  | deleteExpenseReceiptResponse404
+) & {
+  headers: Headers;
+};
+
+export type deleteExpenseReceiptResponse =
+  deleteExpenseReceiptResponseSuccess | deleteExpenseReceiptResponseError;
 
 export const getDeleteExpenseReceiptUrl = (id: string) => {
   return `/expenses/${id}/receipt`;
 };
 
 /**
+ * Idempotent, 204 whether or not a receipt exists. Not premium-gated, so a lapsed user can remove their image.
  * @summary Remove the receipt image (V2)
  */
 export const deleteExpenseReceipt = async (
@@ -5288,7 +5427,7 @@ export const getDeleteExpenseReceiptMutationKey = () =>
   ['deleteExpenseReceipt'] as const;
 
 export const getDeleteExpenseReceiptMutationOptions = <
-  TError = unknown,
+  TError = UnauthorizedResponse | ForbiddenResponse | NotFoundResponse,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -5329,13 +5468,17 @@ export type DeleteExpenseReceiptMutationResult = NonNullable<
   Awaited<ReturnType<typeof deleteExpenseReceipt>>
 >;
 
-export type DeleteExpenseReceiptMutationError = unknown;
+export type DeleteExpenseReceiptMutationError =
+  UnauthorizedResponse | ForbiddenResponse | NotFoundResponse;
 export type DeleteExpenseReceiptMutationVariables = { id: string };
 
 /**
  * @summary Remove the receipt image (V2)
  */
-export const useDeleteExpenseReceipt = <TError = unknown, TContext = unknown>(
+export const useDeleteExpenseReceipt = <
+  TError = UnauthorizedResponse | ForbiddenResponse | NotFoundResponse,
+  TContext = unknown,
+>(
   options?: {
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof deleteExpenseReceipt>>,
@@ -7413,12 +7556,22 @@ export type listRecurringExpensesResponse200 = {
   status: 200;
 };
 
+export type listRecurringExpensesResponse401 = {
+  data: UnauthorizedResponse;
+  status: 401;
+};
+
 export type listRecurringExpensesResponseSuccess =
   listRecurringExpensesResponse200 & {
     headers: Headers;
   };
+export type listRecurringExpensesResponseError =
+  listRecurringExpensesResponse401 & {
+    headers: Headers;
+  };
+
 export type listRecurringExpensesResponse =
-  listRecurringExpensesResponseSuccess;
+  listRecurringExpensesResponseSuccess | listRecurringExpensesResponseError;
 
 export const getListRecurringExpensesUrl = (
   params?: ListRecurringExpensesParams,
@@ -7462,7 +7615,7 @@ export const getListRecurringExpensesQueryKey = (
 
 export const getListRecurringExpensesQueryOptions = <
   TData = Awaited<ReturnType<typeof listRecurringExpenses>>,
-  TError = unknown,
+  TError = UnauthorizedResponse,
 >(
   params?: ListRecurringExpensesParams,
   options?: {
@@ -7496,11 +7649,11 @@ export const getListRecurringExpensesQueryOptions = <
 export type ListRecurringExpensesQueryResult = NonNullable<
   Awaited<ReturnType<typeof listRecurringExpenses>>
 >;
-export type ListRecurringExpensesQueryError = unknown;
+export type ListRecurringExpensesQueryError = UnauthorizedResponse;
 
 export function useListRecurringExpenses<
   TData = Awaited<ReturnType<typeof listRecurringExpenses>>,
-  TError = unknown,
+  TError = UnauthorizedResponse,
 >(
   params: undefined | ListRecurringExpensesParams,
   options: {
@@ -7527,7 +7680,7 @@ export function useListRecurringExpenses<
 };
 export function useListRecurringExpenses<
   TData = Awaited<ReturnType<typeof listRecurringExpenses>>,
-  TError = unknown,
+  TError = UnauthorizedResponse,
 >(
   params?: ListRecurringExpensesParams,
   options?: {
@@ -7554,7 +7707,7 @@ export function useListRecurringExpenses<
 };
 export function useListRecurringExpenses<
   TData = Awaited<ReturnType<typeof listRecurringExpenses>>,
-  TError = unknown,
+  TError = UnauthorizedResponse,
 >(
   params?: ListRecurringExpensesParams,
   options?: {
@@ -7577,7 +7730,7 @@ export function useListRecurringExpenses<
 
 export function useListRecurringExpenses<
   TData = Awaited<ReturnType<typeof listRecurringExpenses>>,
-  TError = unknown,
+  TError = UnauthorizedResponse,
 >(
   params?: ListRecurringExpensesParams,
   options?: {
@@ -7609,6 +7762,21 @@ export type createRecurringExpenseResponse201 = {
   status: 201;
 };
 
+export type createRecurringExpenseResponse401 = {
+  data: UnauthorizedResponse;
+  status: 401;
+};
+
+export type createRecurringExpenseResponse403 = {
+  data: ForbiddenResponse;
+  status: 403;
+};
+
+export type createRecurringExpenseResponse404 = {
+  data: NotFoundResponse;
+  status: 404;
+};
+
 export type createRecurringExpenseResponse409 = {
   data: Error;
   status: 409;
@@ -7624,7 +7792,11 @@ export type createRecurringExpenseResponseSuccess =
     headers: Headers;
   };
 export type createRecurringExpenseResponseError = (
-  createRecurringExpenseResponse409 | createRecurringExpenseResponse422
+  | createRecurringExpenseResponse401
+  | createRecurringExpenseResponse403
+  | createRecurringExpenseResponse404
+  | createRecurringExpenseResponse409
+  | createRecurringExpenseResponse422
 ) & {
   headers: Headers;
 };
@@ -7682,7 +7854,12 @@ export const getCreateRecurringExpenseMutationKey = () =>
   ['createRecurringExpense'] as const;
 
 export const getCreateRecurringExpenseMutationOptions = <
-  TError = Error | UnprocessableResponse,
+  TError =
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | Error
+    | UnprocessableResponse,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -7723,14 +7900,24 @@ export type CreateRecurringExpenseMutationResult = NonNullable<
   Awaited<ReturnType<typeof createRecurringExpense>>
 >;
 export type CreateRecurringExpenseMutationBody = RecurringCreate;
-export type CreateRecurringExpenseMutationError = Error | UnprocessableResponse;
+export type CreateRecurringExpenseMutationError =
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | NotFoundResponse
+  | Error
+  | UnprocessableResponse;
 export type CreateRecurringExpenseMutationVariables = { data: RecurringCreate };
 
 /**
  * @summary Make an existing expense recurring (V2)
  */
 export const useCreateRecurringExpense = <
-  TError = Error | UnprocessableResponse,
+  TError =
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | Error
+    | UnprocessableResponse,
   TContext = unknown,
 >(
   options?: {
@@ -7760,12 +7947,41 @@ export type updateRecurringExpenseResponse200 = {
   status: 200;
 };
 
+export type updateRecurringExpenseResponse401 = {
+  data: UnauthorizedResponse;
+  status: 401;
+};
+
+export type updateRecurringExpenseResponse403 = {
+  data: ForbiddenResponse;
+  status: 403;
+};
+
+export type updateRecurringExpenseResponse404 = {
+  data: NotFoundResponse;
+  status: 404;
+};
+
+export type updateRecurringExpenseResponse422 = {
+  data: UnprocessableResponse;
+  status: 422;
+};
+
 export type updateRecurringExpenseResponseSuccess =
   updateRecurringExpenseResponse200 & {
     headers: Headers;
   };
+export type updateRecurringExpenseResponseError = (
+  | updateRecurringExpenseResponse401
+  | updateRecurringExpenseResponse403
+  | updateRecurringExpenseResponse404
+  | updateRecurringExpenseResponse422
+) & {
+  headers: Headers;
+};
+
 export type updateRecurringExpenseResponse =
-  updateRecurringExpenseResponseSuccess;
+  updateRecurringExpenseResponseSuccess | updateRecurringExpenseResponseError;
 
 export const getUpdateRecurringExpenseUrl = (id: string) => {
   return `/recurring-expenses/${id}`;
@@ -7818,7 +8034,11 @@ export const getUpdateRecurringExpenseMutationKey = () =>
   ['updateRecurringExpense'] as const;
 
 export const getUpdateRecurringExpenseMutationOptions = <
-  TError = unknown,
+  TError =
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | UnprocessableResponse,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -7859,7 +8079,11 @@ export type UpdateRecurringExpenseMutationResult = NonNullable<
   Awaited<ReturnType<typeof updateRecurringExpense>>
 >;
 export type UpdateRecurringExpenseMutationBody = RecurringUpdate;
-export type UpdateRecurringExpenseMutationError = unknown;
+export type UpdateRecurringExpenseMutationError =
+  | UnauthorizedResponse
+  | ForbiddenResponse
+  | NotFoundResponse
+  | UnprocessableResponse;
 export type UpdateRecurringExpenseMutationVariables = {
   id: string;
   data: RecurringUpdate;
@@ -7868,7 +8092,14 @@ export type UpdateRecurringExpenseMutationVariables = {
 /**
  * @summary Change interval/reminder or stop a rule (active=false) (V2)
  */
-export const useUpdateRecurringExpense = <TError = unknown, TContext = unknown>(
+export const useUpdateRecurringExpense = <
+  TError =
+    | UnauthorizedResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | UnprocessableResponse,
+  TContext = unknown,
+>(
   options?: {
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof updateRecurringExpense>>,
@@ -7896,12 +8127,35 @@ export type deleteRecurringExpenseResponse204 = {
   status: 204;
 };
 
+export type deleteRecurringExpenseResponse401 = {
+  data: UnauthorizedResponse;
+  status: 401;
+};
+
+export type deleteRecurringExpenseResponse403 = {
+  data: ForbiddenResponse;
+  status: 403;
+};
+
+export type deleteRecurringExpenseResponse404 = {
+  data: NotFoundResponse;
+  status: 404;
+};
+
 export type deleteRecurringExpenseResponseSuccess =
   deleteRecurringExpenseResponse204 & {
     headers: Headers;
   };
+export type deleteRecurringExpenseResponseError = (
+  | deleteRecurringExpenseResponse401
+  | deleteRecurringExpenseResponse403
+  | deleteRecurringExpenseResponse404
+) & {
+  headers: Headers;
+};
+
 export type deleteRecurringExpenseResponse =
-  deleteRecurringExpenseResponseSuccess;
+  deleteRecurringExpenseResponseSuccess | deleteRecurringExpenseResponseError;
 
 export const getDeleteRecurringExpenseUrl = (id: string) => {
   return `/recurring-expenses/${id}`;
@@ -7927,7 +8181,7 @@ export const getDeleteRecurringExpenseMutationKey = () =>
   ['deleteRecurringExpense'] as const;
 
 export const getDeleteRecurringExpenseMutationOptions = <
-  TError = unknown,
+  TError = UnauthorizedResponse | ForbiddenResponse | NotFoundResponse,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -7968,13 +8222,17 @@ export type DeleteRecurringExpenseMutationResult = NonNullable<
   Awaited<ReturnType<typeof deleteRecurringExpense>>
 >;
 
-export type DeleteRecurringExpenseMutationError = unknown;
+export type DeleteRecurringExpenseMutationError =
+  UnauthorizedResponse | ForbiddenResponse | NotFoundResponse;
 export type DeleteRecurringExpenseMutationVariables = { id: string };
 
 /**
  * @summary Delete a rule; past occurrences are kept (V2)
  */
-export const useDeleteRecurringExpense = <TError = unknown, TContext = unknown>(
+export const useDeleteRecurringExpense = <
+  TError = UnauthorizedResponse | ForbiddenResponse | NotFoundResponse,
+  TContext = unknown,
+>(
   options?: {
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof deleteRecurringExpense>>,
@@ -8002,6 +8260,11 @@ export type createExportResponse202 = {
   status: 202;
 };
 
+export type createExportResponse401 = {
+  data: UnauthorizedResponse;
+  status: 401;
+};
+
 export type createExportResponse402 = {
   data: PaymentRequiredResponse;
   status: 402;
@@ -8012,11 +8275,25 @@ export type createExportResponse403 = {
   status: 403;
 };
 
+export type createExportResponse404 = {
+  data: NotFoundResponse;
+  status: 404;
+};
+
+export type createExportResponse422 = {
+  data: UnprocessableResponse;
+  status: 422;
+};
+
 export type createExportResponseSuccess = createExportResponse202 & {
   headers: Headers;
 };
 export type createExportResponseError = (
-  createExportResponse402 | createExportResponse403
+  | createExportResponse401
+  | createExportResponse402
+  | createExportResponse403
+  | createExportResponse404
+  | createExportResponse422
 ) & {
   headers: Headers;
 };
@@ -8070,7 +8347,12 @@ export const createExport = async (
 export const getCreateExportMutationKey = () => ['createExport'] as const;
 
 export const getCreateExportMutationOptions = <
-  TError = PaymentRequiredResponse | ForbiddenResponse,
+  TError =
+    | UnauthorizedResponse
+    | PaymentRequiredResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | UnprocessableResponse,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -8112,14 +8394,23 @@ export type CreateExportMutationResult = NonNullable<
 >;
 export type CreateExportMutationBody = ExportCreate;
 export type CreateExportMutationError =
-  PaymentRequiredResponse | ForbiddenResponse;
+  | UnauthorizedResponse
+  | PaymentRequiredResponse
+  | ForbiddenResponse
+  | NotFoundResponse
+  | UnprocessableResponse;
 export type CreateExportMutationVariables = { data: ExportCreate };
 
 /**
  * @summary Start a CSV export of a group or friend (premium, V2)
  */
 export const useCreateExport = <
-  TError = PaymentRequiredResponse | ForbiddenResponse,
+  TError =
+    | UnauthorizedResponse
+    | PaymentRequiredResponse
+    | ForbiddenResponse
+    | NotFoundResponse
+    | UnprocessableResponse,
   TContext = unknown,
 >(
   options?: {
@@ -8312,6 +8603,11 @@ export type createReminderResponse202 = {
   status: 202;
 };
 
+export type createReminderResponse401 = {
+  data: UnauthorizedResponse;
+  status: 401;
+};
+
 export type createReminderResponse422 = {
   data: UnprocessableResponse;
   status: 422;
@@ -8326,7 +8622,9 @@ export type createReminderResponseSuccess = createReminderResponse202 & {
   headers: Headers;
 };
 export type createReminderResponseError = (
-  createReminderResponse422 | createReminderResponse429
+  | createReminderResponse401
+  | createReminderResponse422
+  | createReminderResponse429
 ) & {
   headers: Headers;
 };
@@ -8339,8 +8637,8 @@ export const getCreateReminderUrl = () => {
 };
 
 /**
- * Rate limit 1 per (sender, recipient) per 60 seconds. The server does not check that the recipient owes the sender.
- * @summary Email a settle-up reminder to someone who owes you (V2)
+ * Rate limit 1 per (sender, recipient) per 60 seconds. The server does not check that the recipient owes the sender. Delivery is one outbox row per accepted call; its channel is email when the recipient has an email address, otherwise push (business_rules 10.3). Nothing is queued when the recipient's `reminder` preference is off, but the call still counts toward the rate limit.
+ * @summary Send a settle-up reminder (V2)
  */
 export const createReminder = async (
   reminderCreate: ReminderCreate,
@@ -8381,7 +8679,8 @@ export const createReminder = async (
 export const getCreateReminderMutationKey = () => ['createReminder'] as const;
 
 export const getCreateReminderMutationOptions = <
-  TError = UnprocessableResponse | TooManyRequestsResponse,
+  TError =
+    UnauthorizedResponse | UnprocessableResponse | TooManyRequestsResponse,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
@@ -8423,14 +8722,15 @@ export type CreateReminderMutationResult = NonNullable<
 >;
 export type CreateReminderMutationBody = ReminderCreate;
 export type CreateReminderMutationError =
-  UnprocessableResponse | TooManyRequestsResponse;
+  UnauthorizedResponse | UnprocessableResponse | TooManyRequestsResponse;
 export type CreateReminderMutationVariables = { data: ReminderCreate };
 
 /**
- * @summary Email a settle-up reminder to someone who owes you (V2)
+ * @summary Send a settle-up reminder (V2)
  */
 export const useCreateReminder = <
-  TError = UnprocessableResponse | TooManyRequestsResponse,
+  TError =
+    UnauthorizedResponse | UnprocessableResponse | TooManyRequestsResponse,
   TContext = unknown,
 >(
   options?: {

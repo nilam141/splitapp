@@ -12,16 +12,22 @@ import {
   useDeleteExpense,
   useGetExpense,
   useListCategories,
+  useListRecurringExpenses,
   useRestoreExpense,
+  useUpdateRecurringExpense,
 } from '../api/generated/splitapp';
 import {
   apiErrorOf,
+  cursorOf,
   invalidateExpenses,
   invalidateFriends,
   invalidateGroups,
+  invalidateRecurring,
 } from '../api/helpers';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ErrorView, LoadingView } from '../components/StateViews';
+import { ReceiptThumb } from '../expenses/ReceiptThumb';
+import { REPEAT_ADVERB } from '../expenses/repeatLabels';
 import { DEPARTED_MEMBER_MESSAGE } from '../expenses/messages';
 import { useNameOf } from '../expenses/useNames';
 import { formatMinorAmount } from '../money/format';
@@ -47,6 +53,15 @@ export function ExpenseDetailScreen({ navigation, route }: Props) {
   const deleteExpense = useDeleteExpense();
   const restoreExpense = useRestoreExpense();
   const postComment = useCreateExpenseComment();
+  const rules = useListRecurringExpenses(undefined, {
+    query: { enabled: !!expense?.recurring_rule_id },
+  });
+  const stopRule = useUpdateRecurringExpense();
+  const rule =
+    rules.data?.status === 200
+      ? rules.data.data.items.find(r => r.id === expense?.recurring_rule_id)
+      : undefined;
+  const [confirmStop, setConfirmStop] = useState(false);
 
   const comments = useInfiniteQuery({
     queryKey: [
@@ -56,7 +71,7 @@ export function ExpenseDetailScreen({ navigation, route }: Props) {
     queryFn: ({ pageParam }) =>
       listExpenseComments(expenseId, {
         limit: COMMENT_PAGE,
-        cursor: pageParam,
+        cursor: cursorOf(pageParam),
       }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: last =>
@@ -239,6 +254,26 @@ export function ExpenseDetailScreen({ navigation, route }: Props) {
         </Text>
       ) : null}
 
+      {expense.recurring_rule_id ? (
+        <View style={styles.repeat}>
+          <Text accessibilityRole="text">
+            {rule?.active
+              ? `Repeats ${REPEAT_ADVERB[rule.interval]}, next on ${rule.next_occurrence_date}`
+              : rule
+                ? 'Repeating has stopped'
+                : 'Repeats'}
+          </Text>
+          {rule?.active && !deleted ? (
+            <Button
+              title="Stop repeating"
+              variant="outlined"
+              disabled={busy}
+              onPress={() => setConfirmStop(true)}
+            />
+          ) : null}
+        </View>
+      ) : null}
+
       {expense.payers.map(p => (
         <Text key={p.user_id} style={styles.line}>
           {`${nameOf(p.user_id)} paid ${fmt(p.paid_amount_minor)}`}
@@ -250,6 +285,12 @@ export function ExpenseDetailScreen({ navigation, route }: Props) {
           {`${nameOf(s.user_id)} ${nameOf(s.user_id) === 'You' ? 'owe' : 'owes'} ${fmt(s.owed_amount_minor)}`}
         </Text>
       ))}
+      {expense.receipt_url ? (
+        <>
+          <Text style={styles.section}>Receipt</Text>
+          <ReceiptThumb url={expense.receipt_url} />
+        </>
+      ) : null}
       {expense.notes ? (
         <>
           <Text style={styles.section}>Notes</Text>
@@ -317,6 +358,24 @@ export function ExpenseDetailScreen({ navigation, route }: Props) {
       <Button title="Send" disabled={busy} onPress={send} />
 
       <ConfirmDialog
+        visible={confirmStop}
+        title="Stop repeating?"
+        message="Expenses already created are kept. No new ones will be added."
+        confirmLabel="Stop repeating"
+        onClose={() => setConfirmStop(false)}
+        onConfirm={() => {
+          setConfirmStop(false);
+          run(async () => {
+            const res = await stopRule.mutateAsync({
+              id: expense.recurring_rule_id ?? '',
+              data: { active: false },
+            });
+            await invalidateRecurring(qc);
+            return res;
+          }, 200);
+        }}
+      />
+      <ConfirmDialog
         visible={confirmDelete}
         title="Delete this expense?"
         message="It is removed from balances for everyone. You can restore it afterwards."
@@ -332,7 +391,7 @@ export function ExpenseDetailScreen({ navigation, route }: Props) {
   );
 }
 
-const makeStyles = ({ colors }: Theme) =>
+const makeStyles = ({ colors, spacing }: Theme) =>
   StyleSheet.create({
     container: { padding: 16 },
     deleted: {
@@ -359,6 +418,7 @@ const makeStyles = ({ colors }: Theme) =>
       marginBottom: 6,
     },
     actions: { marginTop: 16, alignItems: 'flex-start' },
+    repeat: { marginVertical: spacing.sm, gap: spacing.sm },
     comment: {
       backgroundColor: colors.fieldBackground,
       borderRadius: 8,

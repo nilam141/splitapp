@@ -114,13 +114,26 @@ export function GroupBalancesScreen({ navigation, route }: Props) {
             {data.simplified ? 'Suggested payments' : 'Who owes whom'}
           </Text>
           {data.transfers.map((t, i) => (
-            <Text
-              key={`${i}-${t.from_user_id}-${t.to_user_id}-${t.currency}`}
-              testID="transfer"
-              style={styles.transfer}
-            >
-              {line(t)}
-            </Text>
+            <View key={`${i}-${t.from_user_id}-${t.to_user_id}-${t.currency}`}>
+              <Text testID="transfer" style={styles.transfer}>
+                {line(t)}
+              </Text>
+              {t.to_user_id === user?.id ? (
+                <Button
+                  title={`Remind ${nameOf(t.from_user_id)}`}
+                  variant="outlined"
+                  onPress={() =>
+                    navigation.navigate('Remind', {
+                      toUserId: t.from_user_id,
+                      toName: nameOf(t.from_user_id),
+                      groupId,
+                      amountMinor: t.amount_minor,
+                      currency: t.currency,
+                    })
+                  }
+                />
+              ) : null}
+            </View>
           ))}
         </View>
       ) : null}

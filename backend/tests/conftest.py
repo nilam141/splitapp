@@ -29,6 +29,13 @@ def alembic_config(url: str) -> Config:
     return cfg
 
 
+@pytest.fixture(autouse=True)
+def _storage_dir(tmp_path, monkeypatch):
+    """Receipts and exports are written to a per-test directory, never to the working tree."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "storage_dir", str(tmp_path / "storage"))
+
+
 @pytest.fixture()
 def engine():
     if PG_URL:

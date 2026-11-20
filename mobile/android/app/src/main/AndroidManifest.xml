@@ -23,6 +23,21 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
+        <!-- Deep links (F-54). Host and scheme mirror src/config.ts; D4 (final domain) is still open, so no autoVerify yet. -->
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" android:host="splitapp.example" android:pathPrefix="/join" />
+            <data android:scheme="https" android:host="splitapp.example" android:pathPrefix="/reset" />
+            <data android:scheme="https" android:host="splitapp.example" android:pathPrefix="/add" />
+        </intent-filter>
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="splitapp" />
+        </intent-filter>
       </activity>
     </application>
 </manifest>

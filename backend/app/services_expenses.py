@@ -7,6 +7,7 @@ Edits follow `ExpenseUpdate`: only the fields sent change. If `total` changes an
 is re-scaled to the new total; every other stored payer set and every stored split is re-validated against the new total
 (equal, percent, shares and adjustment re-compute from their inputs; an exact split or a multi-payer set that no longer
 adds up is a 422 SPLIT_SUM_MISMATCH / PAYER_SUM_MISMATCH and the client must resend it)."""
+import re
 import uuid
 from datetime import date, datetime, timezone
 from typing import Any
@@ -16,8 +17,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import activity, idempotency
+from app.config import settings
 from app.errors import ApiError
-from app.models import (Category, Comment, Currency, Expense, ExpensePayer, ExpenseSplit, Group, GroupMember, User)
+from app.models import (Category, Comment, Currency, Expense, ExpensePayer, ExpenseSplit, Group, GroupMember, Receipt,
+                        User)
 from app.pagination import Key, aware, decode, encode
 from app.schemas import UserPublic
 from app.schemas_expenses import (CommentCreate, CommentOut, CommentPage, ExpenseCreate, ExpenseOut, ExpensePage,
@@ -25,6 +28,7 @@ from app.schemas_expenses import (CommentCreate, CommentOut, CommentPage, Expens
 from app.services_friends import _visible_friend
 from app.services_groups import _live_group_for_member, _load_for_member, lock_group
 from app.splits import SplitError, compute_split, validate_payers, validate_total
+from app.storage import get_storage
 
 _MESSAGES = {
     "AMOUNT_OUT_OF_RANGE": "The amount must be between 1 and 9,999,999,999 minor units",
@@ -123,6 +127,9 @@ def _outs(db: Session, expenses: list[Expense], viewer_id: uuid.UUID) -> list[Ex
         splits[eid].append((uid, owed, value))
     counts = dict(db.execute(select(Comment.expense_id, func.count()).where(
         Comment.expense_id.in_(ids), Comment.deleted_at.is_(None)).group_by(Comment.expense_id)).all())
+    receipts = dict(db.execute(select(Receipt.expense_id, Receipt.storage_key)
+                               .where(Receipt.expense_id.in_(ids))).all())
+    store = get_storage() if receipts else None
     out = []
     for e in expenses:
         paid = sum(a for u, a in payers[e.id] if u == viewer_id)
@@ -134,7 +141,8 @@ def _outs(db: Session, expenses: list[Expense], viewer_id: uuid.UUID) -> list[Ex
             payers=[ExpensePayerOut(user_id=u, paid_amount_minor=a)
                     for u, a in sorted(payers[e.id], key=lambda p: (-p[1], str(p[0])))],
             splits=[ExpenseSplitOut(user_id=u, owed_amount_minor=o, input_value=v) for u, o, v in splits[e.id]],
-            my_net=MoneyOut(amount_minor=paid - owed, currency=e.currency), receipt_url=None,
+            my_net=MoneyOut(amount_minor=paid - owed, currency=e.currency),
+            receipt_url=(store.signed_url(receipts[e.id], settings.receipt_url_seconds) if e.id in receipts else None),
             recurring_rule_id=e.recurring_rule_id, comment_count=counts.get(e.id, 0), created_by=e.created_by,
             updated_by=e.updated_by, created_at=aware(e.created_at), updated_at=aware(e.updated_at),
             deleted_at=aware(e.deleted_at) if e.deleted_at else None, deleted_by=e.deleted_by, version=e.version))
@@ -236,8 +244,6 @@ def _create(db: Session, me: User, req: ExpenseCreate, group_id: uuid.UUID | Non
     if group_id is not None:
         lock_group(db, group_id)
         _live_group_for_member(db, me, group_id)
-    if req.recurrence is not None:
-        raise ApiError(501, "NOT_IMPLEMENTED", "Recurring expenses are not available yet")
     total = req.total.amount_minor
     try:
         validate_total(total)
@@ -261,6 +267,9 @@ def _create(db: Session, me: User, req: ExpenseCreate, group_id: uuid.UUID | Non
     db.add(e)
     db.flush()
     _write_rows(db, e.id, payers, rows)
+    if req.recurrence is not None:  # the new expense is the first occurrence of a new rule (S6-B-1)
+        from app import services_recurring
+        services_recurring.attach_rule(db, me, e, req.recurrence.interval, req.recurrence.reminder_days_before)
     _log_expense(db, me, "expense.created", e, None, _nets(payers, rows))
     return 201, expense_out(db, e, me.id).model_dump(mode="json")
 
@@ -334,8 +343,31 @@ def list_group_expenses(db: Session, me: User, group_id: uuid.UUID, limit: int, 
     return _page(db, me, base, limit, cursor)
 
 
+_DECIMAL = re.compile(r"^(\d{1,10})(?:\.(\d{1,4}))?$")
+
+
+def _search_clause(db: Session, q: str):
+    """Case-insensitive substring on description and notes (LIKE wildcards in `q` are escaped). If `q` is a plain
+    decimal (`900`, `900.50`), expenses whose total equals it in the currency's own exponent also match; the number is
+    turned into minor units with integer maths only."""
+    text_match = or_(Expense.description.icontains(q, autoescape=True), Expense.notes.icontains(q, autoescape=True))
+    m = _DECIMAL.match(q.strip())
+    if m is None:
+        return text_match
+    whole, frac = m.group(1), m.group(2) or ""
+    by_exp: dict[int, list[str]] = {}
+    for code, exponent in db.execute(select(Currency.code, Currency.exponent)):
+        by_exp.setdefault(exponent, []).append(code)
+    amounts = []
+    for exponent, codes in by_exp.items():
+        if len(frac) <= exponent:
+            minor = int(whole) * 10 ** exponent + int(frac.ljust(exponent, "0") or 0) if exponent else int(whole)
+            amounts.append(and_(Expense.currency.in_(codes), Expense.total_amount_minor == minor))
+    return or_(text_match, *amounts)
+
+
 def list_expenses(db: Session, me: User, limit: int, cursor: str | None, friend_user_id: uuid.UUID | None,
-                  non_group: bool | None) -> ExpensePage:
+                  non_group: bool | None, q: str | None = None) -> ExpensePage:
     """The caller's live expenses: those of the live groups they are in, plus non-group expenses they take part in."""
     my_groups = (select(GroupMember.group_id).join(Group, Group.id == GroupMember.group_id)
                  .where(GroupMember.user_id == me.id, GroupMember.left_at.is_(None), Group.deleted_at.is_(None)))
@@ -344,6 +376,8 @@ def list_expenses(db: Session, me: User, limit: int, cursor: str | None, friend_
         or_(Expense.group_id.in_(my_groups), and_(Expense.group_id.is_(None), Expense.id.in_(_involving(me.id)))))
     if friend_user_id is not None:
         base = base.where(Expense.id.in_(_involving(friend_user_id)), Expense.id.in_(_involving(me.id)))
+    if q is not None:
+        base = base.where(_search_clause(db, q))
     if non_group is True:
         base = base.where(Expense.group_id.is_(None))
     elif non_group is False:

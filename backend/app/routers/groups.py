@@ -4,11 +4,11 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app import idempotency, services_groups
+from app import idempotency, services_groups, services_invites
 from app.auth_deps import get_current_user
 from app.db import get_db
 from app.models import User
-from app.schemas import GroupCreate, GroupList, GroupOut, GroupUpdate, MembersAdd
+from app.schemas import (GroupCreate, GroupList, GroupOut, GroupUpdate, InviteLink, JoinGroupRequest, MembersAdd)
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -24,6 +24,11 @@ def create_group(body: GroupCreate, request: Request, user: User = Depends(get_c
     key = idempotency.parse_header(request)
     status, payload = services_groups.create_group(db, user, body, key)
     return JSONResponse(payload, status_code=status)
+
+
+@router.post("/join", response_model=GroupOut)
+def join_group(body: JoinGroupRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return services_invites.join_group(db, user, body)
 
 
 @router.get("/{group_id}", response_model=GroupOut)
@@ -54,3 +59,13 @@ def remove_member(group_id: uuid.UUID, user_id: str, user: User = Depends(get_cu
                   db: Session = Depends(get_db)):
     services_groups.remove_member(db, user, group_id, user_id)
     return Response(status_code=204)
+
+
+@router.get("/{group_id}/invite-link", response_model=InviteLink)
+def get_invite_link(group_id: uuid.UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return services_invites.get_invite_link(db, user, group_id)
+
+
+@router.post("/{group_id}/invite-link", status_code=201, response_model=InviteLink)
+def reset_invite_link(group_id: uuid.UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return services_invites.reset_invite_link(db, user, group_id)

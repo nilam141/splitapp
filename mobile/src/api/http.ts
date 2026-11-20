@@ -1,6 +1,7 @@
 import { API_BASE_URL } from '../config';
 import { clearTokens, loadTokens, saveTokens } from '../auth/tokenStorage';
 import { notifySessionExpired } from '../auth/sessionEvents';
+import { isNetworkError, setOffline } from '../offline/connectivity';
 import {
   getLoginUrl,
   getLogoutUrl,
@@ -33,10 +34,19 @@ async function send<T>(
   if (accessToken && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${accessToken}`);
   }
-  const response = await fetch(`${API_BASE_URL}${url}`, {
-    ...init,
-    headers,
-  } as RequestInit);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${url}`, {
+      ...init,
+      headers,
+    } as RequestInit);
+  } catch (e) {
+    if (isNetworkError(e)) {
+      setOffline(true);
+    }
+    throw e;
+  }
+  setOffline(false);
   const text = await response.text();
   const data = text ? JSON.parse(text) : undefined;
   return { data, status: response.status, headers: response.headers } as T;

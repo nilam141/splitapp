@@ -6,6 +6,8 @@ export type AuthStackParamList = {
   SignUp: undefined;
   LogIn: { email?: string } | undefined;
   SessionExpired: { email: string };
+  /** SCR-06: opened from a reset link. */
+  PasswordReset: { token: string };
 };
 
 export type TabParamList = {
@@ -49,6 +51,30 @@ export type MainStackParamList = {
     owedMinor?: number;
   };
   PaymentDetail: { settlementId: string };
+  /** SCR-34. */
+  NotificationSettings: undefined;
+  /** SCR-17. */
+  InviteLink: { groupId: string };
+  /** SCR-18: opened from an invite link; the preview endpoint is not in the contract (D-C). */
+  JoinGroup: { token: string };
+  /** Add-friend link: adds by friend code (no lookup endpoint, D-C). */
+  AddFriendByCode: { code: string };
+  /** SCR-42 (my code only; scan is Blocked, D-C). */
+  MyCode: undefined;
+  /** SCR-33: remind `toUserId` (optionally within a group) about `amountMinor`. */
+  Remind: {
+    toUserId: string;
+    toName: string;
+    groupId?: string | null;
+    amountMinor?: number;
+    currency?: string;
+  };
+  /** SCR-39. */
+  Paywall: { reason?: 'search' | 'export' | 'receipt' } | undefined;
+  /** SCR-36. */
+  Search: undefined;
+  /** SCR-38: exactly one of groupId / friendId. */
+  ExportSheet: { groupId?: string; friendId?: string };
 };
 
 export type RootStackParamList = {

@@ -105,6 +105,9 @@ def _split_weighted(total: int, weights: Sequence[Entry]) -> dict[Hashable, int]
     return owed
 
 
+split_weighted = _split_weighted  # public name for other pure modules (recurrence)
+
+
 def split_percent(total: int, entries: Sequence[Entry]) -> dict[Hashable, int]:
     """Entries are basis points (3333 = 33.33%); they must add up to 10000."""
     _check_entries(entries, "split.entries", TOTAL_BP)

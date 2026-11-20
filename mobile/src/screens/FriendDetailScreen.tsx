@@ -1,5 +1,6 @@
 import React, { useLayoutEffect, useMemo } from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
+import { cursorOf } from '../api/helpers';
 import { Theme, useThemedStyles } from '../theme';
 import { Text } from '../components/Text';
 import { Button } from '../components/Button';
@@ -16,7 +17,9 @@ import { BalanceLines } from '../components/BalanceLines';
 import { EmptyView, ErrorView, LoadingView } from '../components/StateViews';
 import { ExpenseRow, monthLabel } from '../expenses/ExpenseRow';
 import { useNameOf } from '../expenses/useNames';
+import { useGatedNavigate } from '../premium/gate';
 import { useMoney } from '../money/useMoney';
+import { visibleLines } from '../components/BalanceLines';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'FriendDetail'>;
 const PAGE_SIZE = 30;
@@ -29,8 +32,9 @@ type Row =
 export function FriendDetailScreen({ navigation, route }: Props) {
   const styles = useThemedStyles(makeStyles);
   const { friendId } = route.params;
-  const { exponentOf } = useMoney();
+  const { exponentOf, format } = useMoney();
   const nameOf = useNameOf(null);
+  const gated = useGatedNavigate();
   const query = useGetFriend(friendId);
   const friend = query.data?.status === 200 ? query.data.data : undefined;
 
@@ -46,7 +50,7 @@ export function FriendDetailScreen({ navigation, route }: Props) {
       listExpenses({
         friend_user_id: friendId,
         limit: PAGE_SIZE,
-        cursor: pageParam,
+        cursor: cursorOf(pageParam),
       }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: last =>
@@ -121,6 +125,28 @@ export function FriendDetailScreen({ navigation, route }: Props) {
         {friend.user.name}
       </Text>
       <BalanceLines lines={friend.balances} />
+      {visibleLines(friend.balances)
+        .filter(l => l.amount_minor > 0)
+        .map(l => (
+          <Button
+            key={`remind-${l.currency}`}
+            title={`Remind about ${format(l.amount_minor, l.currency)}`}
+            variant="outlined"
+            onPress={() =>
+              navigation.navigate('Remind', {
+                toUserId: friendId,
+                toName: friend.user.name,
+                amountMinor: l.amount_minor,
+                currency: l.currency,
+              })
+            }
+          />
+        ))}
+      <Button
+        title="Export to CSV"
+        variant="outlined"
+        onPress={() => gated('ExportSheet', { friendId })}
+      />
       <Button
         title="Settle up"
         onPress={() => navigation.navigate('SettleUp', { friendId })}

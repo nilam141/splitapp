@@ -23,7 +23,7 @@ def test_models_declare_the_new_tables_and_columns():
     cols = set(t["expenses"].c.keys())
     assert {"recurring_rule_id", "occurrence_date", "idempotency_key", "fx_original_amount_minor",
             "fx_original_currency", "fx_rate", "version", "deleted_at", "deleted_by"} <= cols
-    assert not t["expenses"].c.recurring_rule_id.foreign_keys  # FK arrives with recurring_rules (S6-B-1)
+    assert {fk.column.table.name for fk in t["expenses"].c.recurring_rule_id.foreign_keys} == {"recurring_rules"}  # FK added by 0007 (S6-B-1)
     assert not t["comments"].c.settlement_id.foreign_keys      # FK arrives with settlements (S5-B-1)
 
 

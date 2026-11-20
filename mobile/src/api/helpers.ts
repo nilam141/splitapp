@@ -5,6 +5,7 @@ import {
   getListExpensesUrl,
   getListFriendsUrl,
   getListGroupsUrl,
+  getListRecurringExpensesUrl,
   getListSettlementsUrl,
 } from './generated/splitapp';
 
@@ -78,3 +79,17 @@ export const invalidateAfterPayment = (qc: QueryClient) =>
     invalidateSettlements(qc),
     startsWithUrl(qc, getGetOverallBalancesUrl()),
   ]);
+
+/** listRecurringExpenses (the rules behind the "repeats" label on SCR-29). */
+export const invalidateRecurring = (qc: QueryClient) =>
+  startsWithUrl(qc, getListRecurringExpensesUrl().split('?')[0]);
+
+/**
+ * Cursor for an infinite query page. The persisted cache is JSON, so after a cold start the first page param
+ * `undefined` comes back as `null`; the API rejects `cursor=null` (422), so `null` is mapped back to `undefined`.
+ */
+export function cursorOf(
+  pageParam: string | null | undefined,
+): string | undefined {
+  return pageParam ?? undefined;
+}

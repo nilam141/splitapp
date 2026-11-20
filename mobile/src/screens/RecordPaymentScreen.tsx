@@ -25,6 +25,9 @@ import {
   invalidateAfterPayment,
   newIdempotencyKey,
 } from '../api/helpers';
+import type { SettlementCreate } from '../api/generated/model';
+import { isNetworkError } from '../offline/connectivity';
+import { enqueueWrite } from '../offline/queue';
 import { useAuth } from '../auth/AuthContext';
 import { isoDate } from '../expenses/draft';
 import { useNameOf } from '../expenses/useNames';
@@ -184,6 +187,7 @@ function PaymentForm({
 
   const save = async (minor: number) => {
     setOverpay(false);
+    let queued: SettlementCreate | undefined;
     setSaving(true);
     try {
       if (initial) {
@@ -213,16 +217,16 @@ function PaymentForm({
         }
         return;
       }
-      const res = await create.mutateAsync({
-        data: {
-          group_id: groupId,
-          from_user_id: from,
-          to_user_id: to,
-          amount: { amount_minor: minor, currency },
-          settled_on: date,
-          note: note.trim() === '' ? null : note.trim(),
-        },
-      });
+      const body = {
+        group_id: groupId,
+        from_user_id: from,
+        to_user_id: to,
+        amount: { amount_minor: minor, currency },
+        settled_on: date,
+        note: note.trim() === '' ? null : note.trim(),
+      };
+      queued = body;
+      const res = await create.mutateAsync({ data: body });
       if (res.status === 201) {
         const id = res.data.id;
         await invalidateAfterPayment(qc);
@@ -244,8 +248,15 @@ function PaymentForm({
       } else {
         setBanner(messageForCreateError(apiErrorOf(res)?.code));
       }
-    } catch {
-      setBanner(OFFLINE_MESSAGE);
+    } catch (e) {
+      if (queued && isNetworkError(e)) {
+        // No connection: keep the payment on the device and replay it with the same Idempotency-Key (F-53).
+        await enqueueWrite({ kind: 'settlement', body: queued }, key.current);
+        showSnackbar("Saved on this device. It will sync when you're online.");
+        navigation.goBack();
+      } else {
+        setBanner(OFFLINE_MESSAGE);
+      }
     } finally {
       setSaving(false);
     }

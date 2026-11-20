@@ -9,6 +9,7 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { cursorOf } from '../api/helpers';
 import { Theme, useTheme, useThemedStyles } from '../theme';
 import { Text } from '../components/Text';
 import { Button } from '../components/Button';
@@ -100,7 +101,7 @@ export function ActivityScreen() {
   const feed = useInfiniteQuery({
     queryKey: [...getListActivityQueryKey({ limit: PAGE_SIZE }), 'infinite'],
     queryFn: ({ pageParam }) =>
-      listActivity({ limit: PAGE_SIZE, cursor: pageParam }),
+      listActivity({ limit: PAGE_SIZE, cursor: cursorOf(pageParam) }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: last =>
       last.status === 200 ? (last.data.next_cursor ?? undefined) : undefined,

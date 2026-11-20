@@ -15,6 +15,16 @@ import { FriendSettingsScreen } from '../screens/FriendSettingsScreen';
 import { SettleUpScreen } from '../screens/SettleUpScreen';
 import { RecordPaymentScreen } from '../screens/RecordPaymentScreen';
 import { PaymentDetailScreen } from '../screens/PaymentDetailScreen';
+import { NotificationSettingsScreen } from '../screens/NotificationSettingsScreen';
+import { InviteLinkScreen } from '../screens/InviteLinkScreen';
+import { JoinGroupScreen } from '../screens/JoinGroupScreen';
+import { AddFriendByCodeScreen } from '../screens/AddFriendByCodeScreen';
+import { MyCodeScreen } from '../screens/MyCodeScreen';
+import { RemindScreen } from '../screens/RemindScreen';
+import { PaywallScreen } from '../screens/PaywallScreen';
+import { SearchScreen } from '../screens/SearchScreen';
+import { ExportSheetScreen } from '../screens/ExportSheetScreen';
+import { SyncStatusBar } from '../components/SyncStatusBar';
 import { SnackbarHost } from '../components/SnackbarHost';
 
 const Stack = createNativeStackNavigator<MainStackParamList>();
@@ -94,7 +104,53 @@ export function MainNavigator() {
           component={PaymentDetailScreen}
           options={{ title: 'Payment' }}
         />
+        <Stack.Screen
+          name="NotificationSettings"
+          component={NotificationSettingsScreen}
+          options={{ title: 'Notifications' }}
+        />
+        <Stack.Screen
+          name="InviteLink"
+          component={InviteLinkScreen}
+          options={{ title: 'Invite link' }}
+        />
+        <Stack.Screen
+          name="JoinGroup"
+          component={JoinGroupScreen}
+          options={{ title: 'Join group' }}
+        />
+        <Stack.Screen
+          name="AddFriendByCode"
+          component={AddFriendByCodeScreen}
+          options={{ title: 'Add friend' }}
+        />
+        <Stack.Screen
+          name="MyCode"
+          component={MyCodeScreen}
+          options={{ title: 'My code' }}
+        />
+        <Stack.Screen
+          name="Remind"
+          component={RemindScreen}
+          options={{ title: 'Remind' }}
+        />
+        <Stack.Screen
+          name="Paywall"
+          component={PaywallScreen}
+          options={{ title: 'Premium' }}
+        />
+        <Stack.Screen
+          name="Search"
+          component={SearchScreen}
+          options={{ title: 'Search' }}
+        />
+        <Stack.Screen
+          name="ExportSheet"
+          component={ExportSheetScreen}
+          options={{ title: 'Export' }}
+        />
       </Stack.Navigator>
+      <SyncStatusBar />
       <SnackbarHost />
     </>
   );

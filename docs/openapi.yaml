@@ -1457,7 +1457,18 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Group' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
         "410": { $ref: '#/components/responses/Gone' }
+        "422":
+          description: VALIDATION_ERROR when `claim_placeholder_user_id` is not an unclaimed member of this group, or GROUP_TOO_LARGE when joining would exceed 200 members
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                badClaim:
+                  value: { code: VALIDATION_ERROR, message: That person is not an unclaimed member of this group, details: { fields: [ { field: claim_placeholder_user_id, message: That person is not an unclaimed member of this group } ] } }
+                tooLarge:
+                  value: { code: GROUP_TOO_LARGE, message: A group can have at most 200 members }
 
   /groups/{id}:
     parameters:
@@ -1584,6 +1595,15 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/InviteLink' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409":
+          description: ALREADY_DELETED, the group has been deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: ALREADY_DELETED, message: The group has been deleted }
     post:
       tags: [groups]
       operationId: resetGroupInviteLink
@@ -1594,6 +1614,15 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/InviteLink' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409":
+          description: ALREADY_DELETED, the group has been deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: ALREADY_DELETED, message: The group has been deleted }
 
   /groups/{id}/expenses:
     parameters:
@@ -1917,8 +1946,16 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Expense' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
         "402": { $ref: '#/components/responses/PaymentRequired' }
         "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409":
+          description: ALREADY_DELETED, the expense is deleted; restore it first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: ALREADY_DELETED, message: Restore the expense to add a receipt }
         "413":
           description: File larger than 10 MB
           content:
@@ -1930,8 +1967,12 @@ paths:
       tags: [expenses]
       operationId: deleteExpenseReceipt
       summary: Remove the receipt image (V2)
+      description: Idempotent, 204 whether or not a receipt exists. Not premium-gated, so a lapsed user can remove their image.
       responses:
         "204": { description: Removed }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
 
   /expenses/{id}/comments:
     parameters:
@@ -2197,6 +2238,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RecurringList' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
     post:
       tags: [recurring]
       operationId: createRecurringExpense
@@ -2212,11 +2254,19 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RecurringRule' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
         "409":
-          description: The expense already has a rule
+          description: VALIDATION_ERROR (status 409) when the expense already has a rule, or ALREADY_DELETED when the expense or its group is deleted
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                alreadyRepeats:
+                  value: { code: VALIDATION_ERROR, message: This expense already repeats, details: { fields: [ { field: template_expense_id, message: This expense already repeats } ] } }
+                deleted:
+                  value: { code: ALREADY_DELETED, message: The expense has been deleted }
         "422": { $ref: '#/components/responses/Unprocessable' }
 
   /recurring-expenses/{id}:
@@ -2240,12 +2290,19 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RecurringRule' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "422": { $ref: '#/components/responses/Unprocessable' }
     delete:
       tags: [recurring]
       operationId: deleteRecurringExpense
       summary: Delete a rule; past occurrences are kept (V2)
       responses:
         "204": { description: Deleted }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
 
   /exports:
     post:
@@ -2263,8 +2320,11 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Export' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
         "402": { $ref: '#/components/responses/PaymentRequired' }
         "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "422": { $ref: '#/components/responses/Unprocessable' }
 
   /exports/{id}:
     parameters:
@@ -2289,15 +2349,16 @@ paths:
     post:
       tags: [reminders]
       operationId: createReminder
-      summary: Email a settle-up reminder to someone who owes you (V2)
-      description: Rate limit 1 per (sender, recipient) per 60 seconds. The server does not check that the recipient owes the sender.
+      summary: Send a settle-up reminder (V2)
+      description: Rate limit 1 per (sender, recipient) per 60 seconds. The server does not check that the recipient owes the sender. Delivery is one outbox row per accepted call; its channel is email when the recipient has an email address, otherwise push (business_rules 10.3). Nothing is queued when the recipient's `reminder` preference is off, but the call still counts toward the rate limit.
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: '#/components/schemas/ReminderCreate' }
       responses:
-        "202": { description: Queued }
+        "202": { description: Accepted }
+        "401": { $ref: '#/components/responses/Unauthorized' }
         "422": { $ref: '#/components/responses/Unprocessable' }
         "429": { $ref: '#/components/responses/TooManyRequests' }
 

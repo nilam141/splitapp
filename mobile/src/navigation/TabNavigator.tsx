@@ -18,6 +18,7 @@ import { useUnreadCount } from '../activity/useUnreadBadge';
 import { LoadingView } from '../components/StateViews';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TabIcon } from './TabIcons';
+import { useGatedNavigate } from '../premium/gate';
 
 type IconProps = { color: string; focused: boolean };
 const friendsIcon = (p: IconProps) => <TabIcon name="Friends" {...p} />;
@@ -45,10 +46,27 @@ function AddExpenseButton() {
   );
 }
 
+// SCR-07 search entry (F-47): a free user is sent to the paywall.
+function SearchButton() {
+  const styles = useThemedStyles(makeStyles);
+  const gated = useGatedNavigate();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Search expenses"
+      onPress={() => gated('Search', undefined)}
+      style={styles.search}
+    >
+      <Text style={styles.searchText}>Search</Text>
+    </Pressable>
+  );
+}
+
 function AppTabBar(props: BottomTabBarProps) {
   const current = props.state.routes[props.state.index].name;
   return (
     <View>
+      {current !== 'Account' ? <SearchButton /> : null}
       {current !== 'Account' ? <AddExpenseButton /> : null}
       <BottomTabBar {...props} />
     </View>
@@ -148,8 +166,23 @@ export function TabNavigator() {
   );
 }
 
-const makeStyles = ({ colors, spacing, layout }: Theme) =>
+const makeStyles = ({ colors, spacing, layout, radius, touchTarget }: Theme) =>
   StyleSheet.create({
+    search: {
+      position: 'absolute',
+      left: spacing.lg,
+      top: -(layout.fabSize + spacing.lg),
+      minHeight: touchTarget.min,
+      paddingHorizontal: spacing.lg,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      alignItems: 'center',
+      justifyContent: 'center',
+      elevation: 2,
+    },
+    searchText: { color: colors.brandText },
     fab: {
       position: 'absolute',
       right: spacing.lg,

@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React from 'react';
 import {
   fireEvent,
@@ -61,6 +62,7 @@ beforeEach(async () => {
     },
   });
   vault = null;
+  await AsyncStorage.clear(); // the offline profile cache must not leak between tests
   requests = [];
   (Keychain.setGenericPassword as jest.Mock).mockImplementation(
     async (_u, pw) => {

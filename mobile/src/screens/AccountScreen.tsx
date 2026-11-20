@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NavigationProp } from '@react-navigation/native';
+import type { MainStackParamList } from '../navigation/types';
 import { Theme, useThemedStyles } from '../theme';
 import { Text } from '../components/Text';
 import { Button } from '../components/Button';
@@ -21,6 +24,7 @@ export function AccountScreen() {
   const styles = useThemedStyles(makeStyles);
   const { user, signOut, setUser } = useAuth();
   const update = useUpdateCurrentUser();
+  const navigation = useNavigation<NavigationProp<MainStackParamList>>();
   const [name, setName] = useState(user?.name ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
   const [phone, setPhone] = useState(user?.phone_e164 ?? '');
@@ -200,6 +204,24 @@ export function AccountScreen() {
               ? 'Premium'
               : 'Free'}
         </Text>
+        <Button
+          title={user.plan === 'premium' ? 'Manage plan' : 'Upgrade'}
+          variant="secondary"
+          onPress={() => navigation.navigate('Paywall')}
+        />
+      </View>
+
+      <View style={styles.links}>
+        <Button
+          title="Notifications"
+          variant="outlined"
+          onPress={() => navigation.navigate('NotificationSettings')}
+        />
+        <Button
+          title="My friend code"
+          variant="outlined"
+          onPress={() => navigation.navigate('MyCode')}
+        />
       </View>
 
       <View style={styles.logout}>
@@ -234,7 +256,7 @@ export function AccountScreen() {
   );
 }
 
-const makeStyles = ({ colors }: Theme) =>
+const makeStyles = ({ colors, spacing }: Theme) =>
   StyleSheet.create({
     container: { padding: 24 },
     title: { fontSize: 22, fontWeight: '600', marginBottom: 16 },
@@ -243,5 +265,6 @@ const makeStyles = ({ colors }: Theme) =>
     saved: { color: colors.textSecondary, marginBottom: 8 },
     error: { color: colors.errorText, marginTop: 4 },
     logout: { marginTop: 24 },
+    links: { marginTop: spacing.md, gap: spacing.sm },
     value: { marginBottom: 8 },
   });

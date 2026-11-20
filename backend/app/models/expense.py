@@ -37,8 +37,9 @@ class Expense(Base):
     split_type: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
     updated_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
-    # FK to recurring_rules is added by the recurring migration (S6-B-1); the column exists from here on.
-    recurring_rule_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    # FK added by migration 0007 (S6-B-1). use_alter: recurring_rules.template_expense_id points back at expenses.
+    recurring_rule_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("recurring_rules.id", use_alter=True, name="fk_expenses_recurring_rule_id"), nullable=True)
     occurrence_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     # Set by the (later) currency conversion. fx_rate is a rate, not money.
     fx_original_amount_minor: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

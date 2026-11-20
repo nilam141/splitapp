@@ -25,6 +25,30 @@ class Settings(BaseSettings):
     # With N > 0 the client IP is the Nth entry from the RIGHT of X-Forwarded-For (entries appended by our own
     # proxies; anything a client prepends is ignored). Set only when every request really passes through N proxies.
     trusted_proxy_count: int = 0
+    # Invite links (S6-B-4): the url returned by GET /groups/{id}/invite-link is this base plus the token.
+    invite_base_url: str = "https://splitapp.example/join/"
+    reset_url_base: str = "https://splitapp.example/reset-password?token="
+    # Object storage (S6-B-5, S6-B-7). `local` keeps files on disk and serves them through signed `/files/...` URLs.
+    storage_dir: str = "var/storage"
+    storage_public_base_url: str = "http://localhost:8000/files"
+    storage_signing_secret: str = ""  # empty = use jwt_secret
+    receipt_url_seconds: int = 900
+    export_url_seconds: int = 900
+    export_retention_hours: int = 24
+    # Outbound email (S6-B-3). Empty smtp_host = console/log sender.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_starttls: bool = True
+    email_from: str = "SplitApp <no-reply@splitapp.example>"
+    # Push via FCM HTTP v1 (S6-B-3). Empty project id = console/log sender. The access token comes from
+    # `fcm_access_token` or, if google-auth is installed, from the service-account file `fcm_credentials_file`.
+    fcm_project_id: str = ""
+    fcm_access_token: str = ""
+    fcm_credentials_file: str = ""
+    # Background jobs (S6-B-2): `python -m app.scheduler` runs them in a loop at this interval.
+    scheduler_interval_seconds: int = 900
 
 
     @model_validator(mode="after")

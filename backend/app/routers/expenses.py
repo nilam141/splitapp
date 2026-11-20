@@ -1,6 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -8,9 +9,11 @@ from app import idempotency, services_expenses, timeline
 from app.auth_deps import get_current_user
 from app.db import get_db
 from app.errors import ApiError
+from app.services_premium import require_premium
 from app.models import User
 from app.schemas_expenses import (CommentCreate, CommentOut, CommentPage, ExpenseCreate, ExpenseOut, ExpensePage,
                                   ExpenseUpdate)
+from app import services_receipts
 from app.schemas_settlements import TimelinePage
 
 router = APIRouter(tags=["expenses"])
@@ -44,9 +47,9 @@ def list_group_timeline(group_id: uuid.UUID, limit: int = Limit, cursor: str | N
 def list_expenses(limit: int = Limit, cursor: str | None = Query(None), q: str | None = Query(None, min_length=2),
                   friend_user_id: uuid.UUID | None = Query(None), non_group: bool | None = Query(None),
                   user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if q is not None:  # premium search ships with S6-B-6
-        raise ApiError(501, "NOT_IMPLEMENTED", "Expense search is not available yet")
-    return services_expenses.list_expenses(db, user, limit, cursor, friend_user_id, non_group)
+    if q is not None:
+        require_premium(user, "search")
+    return services_expenses.list_expenses(db, user, limit, cursor, friend_user_id, non_group, q)
 
 
 @router.post("/expenses", status_code=201, response_model=ExpenseOut)
@@ -88,3 +91,30 @@ def list_comments(expense_id: uuid.UUID, limit: int = Limit, cursor: str | None 
 def create_comment(expense_id: uuid.UUID, body: CommentCreate, user: User = Depends(get_current_user),
                    db: Session = Depends(get_db)):
     return services_expenses.create_comment(db, user, expense_id, body)
+
+
+@router.post("/expenses/{expense_id}/receipt", status_code=201, response_model=ExpenseOut)
+async def upload_receipt(expense_id: uuid.UUID, request: Request, user: User = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    """Multipart with one `file` part. Authorization and the premium check run before the body is read."""
+    await run_in_threadpool(services_receipts.check_upload_allowed, db, user, expense_id)
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > services_receipts.MAX_BYTES + 64 * 1024:
+        raise services_receipts.too_large()
+    form = await request.form()
+    try:
+        upload = form.get("file")
+        if upload is None or not hasattr(upload, "read"):
+            raise ApiError(422, "VALIDATION_ERROR", "A `file` part is required",
+                           {"fields": [{"field": "file", "message": "required"}]})
+        data = await upload.read(services_receipts.MAX_BYTES + 1)
+        content_type = upload.content_type
+    finally:
+        await form.close()
+    return await run_in_threadpool(services_receipts.save_receipt, db, user, expense_id, data, content_type)
+
+
+@router.delete("/expenses/{expense_id}/receipt", status_code=204)
+def delete_receipt(expense_id: uuid.UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    services_receipts.delete_receipt(db, user, expense_id)
+    return Response(status_code=204)
