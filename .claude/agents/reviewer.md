@@ -12,9 +12,10 @@ Check, in this order:
 1. Money: any float in a money path, wrong rounding or remainder handling, amounts that do not sum to the total.
 2. Auth and authorization: unauthenticated routes that should be protected, missing membership checks, passwords or tokens logged or stored unsafely, secrets committed.
 3. Contract: any endpoint, field, status code or type that differs from `docs/openapi.yaml`; any hand-written API call in `mobile/`.
-4. Tests: the definition of done in `tasks.md` is actually met; tests run and pass; tests were not weakened to pass.
-5. Scope and ownership: files changed outside the task, or agents editing files they do not own.
-6. Originality: anything that looks copied from another app (strings, assets, branding).
+4. UI: follow docs/design_system.md and use theme tokens only. Support light and dark mode.
+5. Tests: the definition of done in `tasks.md` is actually met; tests run and pass; tests were not weakened to pass.
+6. Scope and ownership: files changed outside the task, or agents editing files they do not own.
+7. Originality: anything that looks copied from another app (strings, assets, branding).
 
 Run the test suites yourself and report the real results.
 

@@ -1,0 +1,145 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`S4-M-1 per-currency balance lines (snapshots) 1 currency 1`] = `
+<View>
+  <Text
+    accessibilityLabel="owes you INR 120.50"
+    style={
+      {
+        "color": "#0D743A",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 24,
+      }
+    }
+  >
+    owes you 
+    +
+    INR 120.50
+  </Text>
+</View>
+`;
+
+exports[`S4-M-1 per-currency balance lines (snapshots) 2 currencies, never summed 1`] = `
+<View>
+  <Text
+    accessibilityLabel="owes you INR 120.50"
+    style={
+      {
+        "color": "#0D743A",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 24,
+      }
+    }
+  >
+    owes you 
+    +
+    INR 120.50
+  </Text>
+  <Text
+    accessibilityLabel="you owe USD 3.00"
+    style={
+      {
+        "color": "#AC4209",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 24,
+      }
+    }
+  >
+    you owe 
+    −
+    USD 3.00
+  </Text>
+</View>
+`;
+
+exports[`S4-M-1 per-currency balance lines (snapshots) 3 currencies, ordered by code, 0-decimal JPY 1`] = `
+<View>
+  <Text
+    accessibilityLabel="owes you INR 120.50"
+    style={
+      {
+        "color": "#0D743A",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 24,
+      }
+    }
+  >
+    owes you 
+    +
+    INR 120.50
+  </Text>
+  <Text
+    accessibilityLabel="owes you JPY 1,200"
+    style={
+      {
+        "color": "#0D743A",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 24,
+      }
+    }
+  >
+    owes you 
+    +
+    JPY 1,200
+  </Text>
+  <Text
+    accessibilityLabel="you owe USD 5.00"
+    style={
+      {
+        "color": "#AC4209",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 24,
+      }
+    }
+  >
+    you owe 
+    −
+    USD 5.00
+  </Text>
+</View>
+`;
+
+exports[`S4-M-1 per-currency balance lines (snapshots) member net variant with 2 currencies 1`] = `
+<View>
+  <Text
+    accessibilityLabel="gets back INR 120.50 in total"
+    style={
+      {
+        "color": "#0D743A",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 24,
+      }
+    }
+  >
+    gets back
+     
+    +
+    INR 120.50
+     in total
+  </Text>
+  <Text
+    accessibilityLabel="owes USD 3.00 in total"
+    style={
+      {
+        "color": "#AC4209",
+        "fontSize": 16,
+        "fontWeight": "400",
+        "lineHeight": 24,
+      }
+    }
+  >
+    owes
+     
+    −
+    USD 3.00
+     in total
+  </Text>
+</View>
+`;
