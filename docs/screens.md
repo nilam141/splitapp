@@ -390,8 +390,11 @@ graph TD
 **Fields / UI elements**
 | Element | Type | Required | Validation / notes |
 |---|---|---|---|
-| Header | name, image, user's balance lines per member | – | at most 3 lines, then "+N more" |
-| Action row | buttons: Settle up, Balances, Totals, Charts, Export | – | Totals, Charts and Export gated (F-46) |
+| Header | group name in the nav header only | – | CR-UI-2 (2026-11-20): no in-body title; layout in design_system 8.2 item 7 |
+| Subtitle row | group type + pressable "N members" | – | CR-UI-1 (2026-11-20): the members entry opens the members view; there is no inline Members section. CR-UI-2: sits on one compact row with the type |
+| Your balance card | one card, one row per currency ("You are owed" / "You owe" + amount, icon + text) | – | CR-UI-2: never summed across currencies; settled = check icon + "You are all settled up in this group", no amounts. Supersedes the per-member lines ("at most 3, then +N more"), which are removed from this screen |
+| Counterparty lines | up to 2 lines "X owes you AMOUNT" / "You owe X AMOUNT" | – | CR-UI-2: only from data already loaded, no new request. The "See all balances" link was removed (2026-11-20, duplicated Balances); the card has no navigation link |
+| Action row | buttons: Settle up (primary), Balances (secondary), Totals, Charts, Export | – | Totals, Charts and Export gated (F-46). CR-UI-2: Settle up and Balances share one row with a spacing-token gap, 48dp each; Settle up is secondary when settled (OQ-48). Balances is secondary normally, outlined when settled |
 | Timeline list | rows grouped by month: date, description, payer + amount, user's effect | – | one list from `GET /groups/{id}/timeline` (decided 2026-11-09, OQ-35): items with `kind: expense` render as expense rows, `kind: settlement` as payment rows (styled differently); no client-side merging; infinite scroll with `next_cursor` |
 | Settled-up marker | row | – | "everything before this date is settled; tap to show" |
 | Add expense | floating button | – | prefilled with this group |
@@ -402,9 +405,10 @@ graph TD
 | Tap expense | – | SCR-29 |
 | Tap payment | – | SCR-32 |
 | Tap Settle up | – | SCR-30 (group scope) |
-| Tap Balances | – | SCR-15 |
+| Tap Balances (the only route to SCR-15 from this screen) | – | SCR-15 |
 | Tap Totals | – | SCR-16 or SCR-39 |
 | Tap settings icon | – | SCR-14 |
+| Tap "N members" | Opens the members view (sheet or screen, Mobile's choice) with add people, invite via link, remove | SCR-21, SCR-17 |
 | Scroll to end | GET `/groups/{id}/timeline?cursor=` | – |
 
 **States:** empty with 1 member: "add people" button. Empty with members: "no expenses yet". All settled: "you are all settled up in this group".

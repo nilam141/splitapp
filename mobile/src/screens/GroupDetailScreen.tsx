@@ -1,7 +1,13 @@
 import React, { useLayoutEffect, useMemo } from 'react';
-import { FlatList, StyleSheet, View } from 'react-native';
+import {
+  FlatList,
+  Pressable,
+  StyleSheet,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import { cursorOf } from '../api/helpers';
-import { Theme, useThemedStyles } from '../theme';
+import { Theme, balanceStyle, useTheme, useThemedStyles } from '../theme';
 import { Text } from '../components/Text';
 import { Button } from '../components/Button';
 import { useInfiniteQuery } from '@tanstack/react-query';
@@ -11,14 +17,10 @@ import {
   listGroupTimeline,
   useGetGroup,
 } from '../api/generated/splitapp';
-import type { TimelineItem } from '../api/generated/model';
-import { useAuth } from '../auth/AuthContext';
+import type { BalanceLine, TimelineItem } from '../api/generated/model';
 import type { MainStackParamList } from '../navigation/types';
-import {
-  BalanceLines,
-  MemberNetLines,
-  visibleLines,
-} from '../components/BalanceLines';
+import { visibleLines } from '../components/BalanceLines';
+import { Card } from '../components/Card';
 import { ErrorView, LoadingView } from '../components/StateViews';
 import { ExpenseRow, monthLabel } from '../expenses/ExpenseRow';
 import { useNameOf } from '../expenses/useNames';
@@ -59,11 +61,12 @@ function withMonthHeadings(items: TimelineItem[]): Row[] {
   return rows;
 }
 
-// SCR-13: header, members and the timeline from GET /groups/{id}/timeline (cursor paged, newest first).
+// SCR-13: header, members entry (opens GroupMembers) and the timeline from GET /groups/{id}/timeline (cursor paged, newest first).
 export function GroupDetailScreen({ navigation, route }: Props) {
   const styles = useThemedStyles(makeStyles);
+  const { colors } = useTheme();
   const { groupId } = route.params;
-  const { user } = useAuth();
+  const { fontScale } = useWindowDimensions();
   const { exponentOf, format } = useMoney();
   const nameOf = useNameOf(groupId);
   const query = useGetGroup(groupId);
@@ -134,49 +137,151 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   }
 
   const members = group.members.filter(m => !m.left_at);
-  const memberLines = members.filter(m => visibleLines(m.balances).length > 0);
+  const memberWord = members.length === 1 ? 'member' : 'members';
+  const lines = visibleLines([...(group.my_balances ?? [])]);
+  const settled = lines.length === 0;
+  const owedLines = lines.filter(l => l.amount_minor > 0);
+  const oweLines = lines.filter(l => l.amount_minor < 0);
+  const amountOf = (l: BalanceLine) =>
+    format(Math.abs(l.amount_minor), l.currency);
+  const spoken = settled
+    ? `Your balance in ${group.name}. You are all settled up.`
+    : `Your balance in ${group.name}. ` +
+      [
+        owedLines.length > 0
+          ? `You are owed ${owedLines.map(amountOf).join(' and ')}.`
+          : '',
+        oweLines.length > 0
+          ? `You owe ${oweLines.map(amountOf).join(' and ')}.`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+  const stacked = fontScale >= 1.5;
+  // Pairwise counterparties are not in GET /groups/{id} (members carry only their own net), so no counterparty lines.
   const header = (
     <View>
-      <Text accessibilityRole="header" style={styles.title}>
-        {group.name}
-      </Text>
-      <Text style={styles.meta}>
-        {group.group_type} - {members.length}{' '}
-        {members.length === 1 ? 'member' : 'members'}
-      </Text>
-      <BalanceLines lines={group.my_balances ?? []} />
-      {memberLines.slice(0, 3).map(m => (
-        <View key={m.user.id} style={styles.memberLine}>
-          <Text>{m.user.id === user?.id ? 'You' : m.user.name}</Text>
-          <MemberNetLines
-            lines={m.balances}
-            isViewer={m.user.id === user?.id}
+      <View style={styles.subtitleRow}>
+        <Text variant="callout" style={styles.metaText}>
+          {group.group_type}
+        </Text>
+        <Text
+          variant="callout"
+          style={styles.metaText}
+          importantForAccessibility="no"
+          accessibilityElementsHidden
+        >
+          {'\u00B7'}
+        </Text>
+        <Pressable
+          testID="members-entry"
+          accessibilityRole="button"
+          accessibilityLabel={`${members.length} ${memberWord}, show list`}
+          android_ripple={{ color: colors.border }}
+          onPress={() => navigation.navigate('GroupMembers', { groupId })}
+          style={styles.membersEntry}
+        >
+          <Text variant="callout" style={styles.metaText}>
+            {members.length} {memberWord}
+          </Text>
+          <Text
+            variant="callout"
+            style={styles.metaText}
+            importantForAccessibility="no"
+            accessibilityElementsHidden
+          >
+            {'\u203A'}
+          </Text>
+        </Pressable>
+      </View>
+
+      <Card
+        testID="balance-card"
+        accessible
+        accessibilityLabel={spoken}
+        style={styles.card}
+      >
+        <Text variant="caption" style={styles.metaText}>
+          Your balance
+        </Text>
+        {settled ? (
+          <View testID="balance-settled" style={styles.balanceRow}>
+            <View
+              testID="balance-settled-icon"
+              accessible={false}
+              importantForAccessibility="no-hide-descendants"
+              style={styles.icon}
+            >
+              <Text
+                variant="callout"
+                style={{ color: balanceStyle(colors, 0).accent }}
+              >
+                {'\u2713'}
+              </Text>
+            </View>
+            <Text variant="headline" style={styles.settledText}>
+              You are all settled up in this group
+            </Text>
+          </View>
+        ) : (
+          lines.map(l => {
+            const b = balanceStyle(colors, l.amount_minor);
+            const owed = l.amount_minor > 0;
+            return (
+              <View
+                key={l.currency}
+                testID={`balance-row-${l.currency}`}
+                style={styles.balanceBlock}
+              >
+                <View style={styles.balanceRow}>
+                  <View
+                    testID={`balance-icon-${l.currency}`}
+                    accessible={false}
+                    importantForAccessibility="no-hide-descendants"
+                    style={styles.icon}
+                  >
+                    <Text variant="callout" style={{ color: b.accent }}>
+                      {owed ? '\u2191' : '\u2193'}
+                    </Text>
+                  </View>
+                  <Text variant="callout" style={styles.metaText}>
+                    {owed ? 'You are owed' : 'You owe'}
+                  </Text>
+                </View>
+                <Text
+                  variant={lines.length > 1 ? 'title1' : 'display'}
+                  style={{ color: b.text }}
+                >
+                  {amountOf(l)}
+                </Text>
+              </View>
+            );
+          })
+        )}
+      </Card>
+
+      <View
+        testID="group-actions"
+        style={stacked ? styles.actionsStacked : styles.actions}
+      >
+        <View style={stacked ? undefined : styles.action}>
+          <Button
+            title="Settle up"
+            variant={settled ? 'secondary' : 'primary'}
+            fullWidth
+            onPress={() => navigation.navigate('SettleUp', { groupId })}
           />
         </View>
-      ))}
-      {memberLines.length > 3 ? (
-        <Text style={styles.meta}>+{memberLines.length - 3} more</Text>
-      ) : null}
-      {memberLines.length === 0 && rows.length > 0 ? (
-        <Text style={styles.meta}>You are all settled up in this group</Text>
-      ) : null}
-      <Button
-        title="Settle up"
-        onPress={() => navigation.navigate('SettleUp', { groupId })}
-      />
-      <Button
-        title="Balances"
-        variant="secondary"
-        onPress={() => navigation.navigate('GroupBalances', { groupId })}
-      />
+        <View style={stacked ? undefined : styles.action}>
+          <Button
+            title="Balances"
+            variant={settled ? 'outlined' : 'secondary'}
+            fullWidth
+            onPress={() => navigation.navigate('GroupBalances', { groupId })}
+          />
+        </View>
+      </View>
 
-      <Text style={styles.section}>Members</Text>
-      {members.map(m => (
-        <Text key={m.user.id} style={styles.member}>
-          {m.user.name}
-          {m.user.id === user?.id ? ' (you)' : ''}
-        </Text>
-      ))}
       <Text style={styles.section}>Expenses</Text>
     </View>
   );
@@ -286,35 +391,63 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   );
 }
 
-const makeStyles = ({ colors }: Theme) =>
+const makeStyles = ({ colors, spacing, touchTarget, typography }: Theme) =>
   StyleSheet.create({
     flex: { flex: 1 },
-    container: { padding: 16 },
-    title: { fontSize: 22, fontWeight: '700' },
-    meta: { color: colors.textSecondary, marginBottom: 8 },
-    section: {
-      fontSize: 16,
-      fontWeight: '600',
-      marginTop: 20,
-      marginBottom: 6,
+    container: { padding: spacing.lg },
+    subtitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      columnGap: spacing.sm,
     },
-    memberLine: { flexDirection: 'row', justifyContent: 'space-between' },
-    member: { paddingVertical: 6, fontSize: 15 },
+    metaText: { color: colors.textSecondary },
+    membersEntry: {
+      minHeight: touchTarget.min,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+    },
+    card: { gap: spacing.sm },
+    balanceBlock: { gap: spacing.xs },
+    balanceRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    icon: {
+      width: spacing.xl,
+      height: spacing.xl,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    settledText: { color: colors.textPrimary, flexShrink: 1 },
+    actions: {
+      flexDirection: 'row',
+      gap: spacing.md,
+      marginTop: spacing.lg,
+    },
+    actionsStacked: {
+      flexDirection: 'column',
+      gap: spacing.md,
+      marginTop: spacing.lg,
+    },
+    action: { flex: 1 },
+    section: {
+      ...typography.headline,
+      marginTop: spacing.xl,
+      marginBottom: spacing.sm,
+    },
     month: {
-      fontWeight: '700',
-      marginTop: 14,
-      marginBottom: 2,
+      ...typography.headline,
+      marginTop: spacing.md,
+      marginBottom: spacing.xxs,
       color: colors.textPrimary,
     },
-    payment: {
-      fontStyle: 'italic',
-      color: colors.textSecondary,
-      paddingVertical: 10,
-    },
-    empty: { marginTop: 32, alignItems: 'center' },
-    emptyTitle: { fontSize: 16, marginBottom: 8 },
+    empty: { marginTop: spacing.xxxl, alignItems: 'center' },
+    emptyTitle: { ...typography.body, marginBottom: spacing.sm },
     add: {
-      padding: 12,
+      padding: spacing.md,
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: colors.border,
     },

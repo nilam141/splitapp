@@ -5,6 +5,7 @@ import { TabNavigator } from './TabNavigator';
 import { AddPeopleScreen } from '../screens/AddPeopleScreen';
 import { CreateGroupScreen } from '../screens/CreateGroupScreen';
 import { GroupDetailScreen } from '../screens/GroupDetailScreen';
+import { GroupMembersScreen } from '../screens/GroupMembersScreen';
 import { GroupSettingsScreen } from '../screens/GroupSettingsScreen';
 import { GroupBalancesScreen } from '../screens/GroupBalancesScreen';
 import { SimplifyExplainerScreen } from '../screens/SimplifyExplainerScreen';
@@ -53,6 +54,11 @@ export function MainNavigator() {
           name="GroupDetail"
           component={GroupDetailScreen}
           options={{ title: 'Group' }}
+        />
+        <Stack.Screen
+          name="GroupMembers"
+          component={GroupMembersScreen}
+          options={{ title: 'Members' }}
         />
         <Stack.Screen
           name="GroupSettings"

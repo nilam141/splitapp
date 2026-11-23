@@ -27,6 +27,8 @@ export type MainStackParamList = {
   AddPeople: { mode: AddPeopleMode; selected?: PersonDraft[] };
   CreateGroup: { picked?: PersonDraft[] } | undefined;
   GroupDetail: { groupId: string };
+  /** SCR-13 members view (CR-UI-1): full member list, add people, invite, remove. */
+  GroupMembers: { groupId: string };
   GroupSettings: { groupId: string };
   GroupBalances: { groupId: string };
   SimplifyExplainer: { groupId: string };

@@ -228,7 +228,13 @@ describe('SUI-M-01 verify: Button variant x state x theme (design_system 6.1)', 
     const b = st(r.getByRole('button'));
     if (v === 'primary') expect(b.backgroundColor).toBe(C(s).brandPressed);
     else if (v === 'secondary') expect(b.backgroundColor).toBe(C(s).border);
-    else expect(transparent(b.backgroundColor)).toBe(true); // spec silent: no pressed feedback
+    else if (v === 'outlined') {
+      // design_system.md 8.2 item 7.5 (CR-UI-2): visible pressed feedback
+      expect(b.backgroundColor).toBe(C(s).fieldBackground);
+      // no layout shift: border unchanged from rest state
+      expect(b.borderColor).toBe(borderOf(v, s));
+      expect(b.borderWidth).toBe(1);
+    } else expect(transparent(b.backgroundColor)).toBe(true);
     expect(st(r.getByText('Go')).color).toBe(labelOf(v, s)); // label stays legible
   });
 

@@ -52,7 +52,7 @@ export function Card({
     );
   }
   return (
-    <View {...rest} style={base}>
+    <View {...rest} accessibilityLabel={accessibilityLabel} style={base}>
       {children}
     </View>
   );

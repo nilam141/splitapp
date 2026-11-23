@@ -43,6 +43,7 @@ const PARAMS: Record<string, object | undefined> = {
   FriendsScreen: undefined,
   GroupBalancesScreen: { groupId: 'g-seed' },
   GroupDetailScreen: { groupId: 'g-seed' },
+  GroupMembersScreen: { groupId: 'g-seed' },
   GroupSettingsScreen: { groupId: 'g-seed' },
   GroupsScreen: undefined,
   InviteLinkScreen: { groupId: 'g-seed' },

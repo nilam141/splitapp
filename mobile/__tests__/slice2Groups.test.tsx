@@ -93,8 +93,10 @@ describe('S2-M-3 Groups tab, Create group, Group detail', () => {
     await fireEvent.press(screen.getByText('Done'));
 
     expect(await screen.findByText('No expenses yet')).toBeTruthy();
-    expect(screen.getByText(/other - 3 members|trip - 3 members/)).toBeTruthy();
-    expect(screen.getByText('Asha (you)')).toBeTruthy();
+    expect(screen.getByText('3 members')).toBeTruthy();
+    // CR-UI-1: member names are in the members view, opened from the "N members" entry.
+    await fireEvent.press(screen.getByLabelText('3 members, show list'));
+    expect(await screen.findByText('Asha (you)')).toBeTruthy();
     expect(screen.getByText('Ravi')).toBeTruthy();
     expect(screen.getByText('Meera')).toBeTruthy();
 

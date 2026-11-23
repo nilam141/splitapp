@@ -63,6 +63,7 @@ export function Button({
       secondaryPressed: { backgroundColor: c.border },
       secondaryText: { ...typography.label, color: c.textPrimary },
       outlined: { borderWidth: 1, borderColor: c.borderStrong },
+      outlinedPressed: { backgroundColor: c.fieldBackground },
       destructive: { borderWidth: 1, borderColor: c.error },
       text: {
         height: control.textHeight,
@@ -122,6 +123,9 @@ export function Button({
           : null,
         pressed && !inactive && variant === 'secondary'
           ? styles.secondaryPressed
+          : null,
+        pressed && !inactive && variant === 'outlined'
+          ? styles.outlinedPressed
           : null,
         disabled ? (variant === 'text' ? null : styles.disabled) : null,
         loading && width != null ? { width, minWidth: width } : null,
